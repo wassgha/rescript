@@ -19,6 +19,28 @@ export interface TimeRange {
   end: number;
 }
 
+/**
+ * A cut range tagged with a stable `key` (the id of the first deleted word in
+ * the run that produced it), so manual edge adjustments can be attached to a
+ * specific cut even as the derived set changes.
+ */
+export interface CutRange extends TimeRange {
+  key: number;
+}
+
+/**
+ * A manual override of a cut's edges, in original media seconds. Either edge
+ * may be set independently; an unset edge tracks the word-derived boundary.
+ * Lets the user trim a cut more precisely than Whisper's word timestamps allow.
+ */
+export interface CutAdjustment {
+  start?: number;
+  end?: number;
+}
+
+/** Manual cut-edge overrides, keyed by CutRange.key. */
+export type CutAdjustments = Record<number, CutAdjustment>;
+
 /** Consecutive words spoken by the same speaker (derived for rendering). */
 export interface SpeakerTurn {
   speaker: number;

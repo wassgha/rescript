@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { EditorStatus, ProgressInfo, Word } from "./types";
+import type { CutAdjustments, EditorStatus, ProgressInfo, Word } from "./types";
 import {
   isModelChoice,
   isWhisperModel,
@@ -20,6 +20,15 @@ import {
 interface PendingTranscript {
   name: string;
   words: Word[];
+}
+
+/**
+ * A unit of undoable editor state. Cut-edge adjustments are versioned
+ * alongside word edits so a manual trim undoes/redoes like any other edit.
+ */
+interface Snapshot {
+  words: Word[];
+  cutAdjustments: CutAdjustments;
 }
 
 interface EditorState {
@@ -56,8 +65,10 @@ interface EditorState {
   // Transcript / edits
   words: Word[];
   showDeleted: boolean;
-  past: Word[][];
-  future: Word[][];
+  /** Manual cut-edge overrides, keyed by CutRange.key (see lib/edits.ts). */
+  cutAdjustments: CutAdjustments;
+  past: Snapshot[];
+  future: Snapshot[];
 
   // Playback (mirrored from the <video>/<audio> element for UI rendering)
   currentTime: number;
@@ -93,6 +104,14 @@ interface EditorState {
   restoreWords: (ids: number[]) => void;
   /** Replace the selected (contiguous) words with corrected text. */
   correctWords: (ids: number[], text: string) => void;
+  /**
+   * Set one edge of a cut's manual override (absolute time in original media
+   * seconds). Pass `commit: true` on the first change of a drag to open a new
+   * undo step; `false` for subsequent moves so the whole drag is one undo.
+   */
+  adjustCut: (key: number, edge: "start" | "end", time: number, commit: boolean) => void;
+  /** Clear a cut's manual override, reverting it to the word-derived edges. */
+  resetCutAdjust: (key: number) => void;
   undo: () => void;
   redo: () => void;
   toggleShowDeleted: () => void;
@@ -107,6 +126,11 @@ interface EditorState {
 function bumpAutosave() {
   // Dynamic import avoids a circular dependency with lib/autosave.ts.
   void import("./autosave").then((m) => m.scheduleProjectAutosave());
+}
+
+/** Capture the current undoable state (words + cut adjustments). */
+function snapshotOf(s: { words: Word[]; cutAdjustments: CutAdjustments }): Snapshot {
+  return { words: s.words, cutAdjustments: s.cutAdjustments };
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -127,6 +151,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   words: [],
   showDeleted: true,
+  cutAdjustments: {},
   past: [],
   future: [],
 
@@ -159,6 +184,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         value: null,
       },
       words: imported ? imported : [],
+      cutAdjustments: {},
       past: [],
       future: [],
       partialText: "",
@@ -189,6 +215,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       progress: { message: "Loading media engine…", value: null },
       words: record.words,
       showDeleted: record.showDeleted,
+      cutAdjustments: record.cutAdjustments ?? {},
       past: [],
       future: [],
       partialText: "",
@@ -230,7 +257,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setPartialText: (partialText) => set({ partialText }),
   setError: (message) => set({ status: "error", error: message }),
   setWords: (words) => {
-    set({ words, past: [], future: [] });
+    set({ words, cutAdjustments: {}, past: [], future: [] });
     if (get().status === "ready") bumpAutosave();
   },
   importWords: (words) => {
@@ -247,6 +274,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     void import("@/hooks/useTranscriber").then((m) => m.cancelTranscription());
     set({
       words,
+      cutAdjustments: {},
       past: [],
       future: [],
       partialText: "",
@@ -264,7 +292,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { words, past } = get();
     const idSet = new Set(ids);
     set({
-      past: [...past, words],
+      past: [...past, snapshotOf(get())],
       future: [],
       words: words.map((w) => (idSet.has(w.id) && !w.deleted ? { ...w, deleted: true } : w)),
     });
@@ -275,7 +303,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const { words, past } = get();
     const idSet = new Set(ids);
     set({
-      past: [...past, words],
+      past: [...past, snapshotOf(get())],
       future: [],
       words: words.map((w) => (idSet.has(w.id) && w.deleted ? { ...w, deleted: false } : w)),
     });
@@ -323,29 +351,58 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     replacement[replacement.length - 1].end = spanEnd;
 
     set({
-      past: [...past, words],
+      past: [...past, snapshotOf(get())],
       future: [],
       words: [...words.slice(0, from), ...replacement, ...words.slice(to + 1)],
     });
     bumpAutosave();
   },
-  undo: () => {
-    const { past, future, words } = get();
-    if (past.length === 0) return;
+  adjustCut: (key, edge, time, commit) => {
+    const { cutAdjustments, past } = get();
+    const nextAdjustments: CutAdjustments = {
+      ...cutAdjustments,
+      [key]: { ...(cutAdjustments[key] ?? {}), [edge]: time },
+    };
     set({
-      words: past[past.length - 1],
+      cutAdjustments: nextAdjustments,
+      // Open a new undo step only on the first change of a drag.
+      ...(commit ? { past: [...past, snapshotOf(get())], future: [] } : {}),
+    });
+    bumpAutosave();
+  },
+  resetCutAdjust: (key) => {
+    const { cutAdjustments, past } = get();
+    if (!cutAdjustments[key]) return;
+    const nextAdjustments = { ...cutAdjustments };
+    delete nextAdjustments[key];
+    set({
+      past: [...past, snapshotOf(get())],
+      future: [],
+      cutAdjustments: nextAdjustments,
+    });
+    bumpAutosave();
+  },
+  undo: () => {
+    const { past, future } = get();
+    if (past.length === 0) return;
+    const prev = past[past.length - 1];
+    set({
+      words: prev.words,
+      cutAdjustments: prev.cutAdjustments,
       past: past.slice(0, -1),
-      future: [words, ...future],
+      future: [snapshotOf(get()), ...future],
     });
     bumpAutosave();
   },
   redo: () => {
-    const { past, future, words } = get();
+    const { past, future } = get();
     if (future.length === 0) return;
+    const next = future[0];
     set({
-      words: future[0],
+      words: next.words,
+      cutAdjustments: next.cutAdjustments,
+      past: [...past, snapshotOf(get())],
       future: future.slice(1),
-      past: [...past, words],
     });
     bumpAutosave();
   },
@@ -379,6 +436,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       partialText: "",
       error: null,
       words: [],
+      cutAdjustments: {},
       past: [],
       future: [],
       currentTime: 0,

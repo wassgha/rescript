@@ -1,4 +1,4 @@
-import type { TimeRange, Word } from "./types";
+import type { CutAdjustments, CutRange, TimeRange, Word } from "./types";
 
 /** Padding (s) applied when merging adjacent deleted words into one cut. */
 const MERGE_GAP = 0.35;
@@ -8,21 +8,25 @@ const MERGE_GAP = 0.35;
  * runs of consecutive deleted words. The silence between two adjacent deleted
  * words is cut too, so deleting a phrase removes it cleanly.
  */
-export function getCutRanges(words: Word[], duration: number): TimeRange[] {
-  const ranges: TimeRange[] = [];
+export function getCutRanges(words: Word[], duration: number): CutRange[] {
+  const ranges: CutRange[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
     if (!w.deleted) continue;
+    // Anchor the cut to the first deleted word's id so a manual edge
+    // adjustment can be attached to this cut specifically.
+    const key = w.id;
     const start = w.start;
     let end = w.end;
     while (i + 1 < words.length && words[i + 1].deleted) {
       i++;
       end = Math.max(end, words[i].end);
     }
-    ranges.push({ start, end });
+    ranges.push({ start, end, key });
   }
   // Merge ranges separated by less than MERGE_GAP to avoid audible slivers.
-  const merged: TimeRange[] = [];
+  // The earlier range's key is kept so the merged cut has a stable anchor.
+  const merged: CutRange[] = [];
   for (const r of ranges) {
     const last = merged[merged.length - 1];
     if (last && r.start - last.end < MERGE_GAP) {
@@ -32,9 +36,56 @@ export function getCutRanges(words: Word[], duration: number): TimeRange[] {
     }
   }
   return merged.map((r) => ({
+    ...r,
     start: Math.max(0, r.start),
     end: Math.min(duration, r.end),
   }));
+}
+
+/**
+ * Apply manual cut-edge overrides on top of the word-derived cuts. An override
+ * replaces either edge with an absolute time (in original media seconds);
+ * unset edges keep tracking the word boundary. The result is re-sorted and made
+ * non-overlapping so downstream keep-range / playback logic stays well-formed.
+ */
+export function applyCutAdjustments(
+  cuts: CutRange[],
+  adjustments: CutAdjustments,
+  duration: number
+): CutRange[] {
+  const clamp = (t: number) => Math.min(Math.max(0, t), duration);
+  const adjusted = cuts.map((c) => {
+    const a = adjustments[c.key];
+    if (!a) return { ...c };
+    const start = clamp(a.start ?? c.start);
+    let end = clamp(a.end ?? c.end);
+    if (end < start) end = start;
+    return { ...c, start, end };
+  });
+  adjusted.sort((a, b) => a.start - b.start);
+  for (let i = 1; i < adjusted.length; i++) {
+    if (adjusted[i].start < adjusted[i - 1].end) {
+      adjusted[i].start = adjusted[i - 1].end;
+    }
+    if (adjusted[i].end < adjusted[i].start) {
+      adjusted[i].end = adjusted[i].start;
+    }
+  }
+  return adjusted;
+}
+
+/**
+ * The cuts actually used for rendering, playback and export: word-derived cuts
+ * with any manual edge adjustments applied.
+ */
+export function getEffectiveCuts(
+  words: Word[],
+  duration: number,
+  adjustments: CutAdjustments = {}
+): CutRange[] {
+  const cuts = getCutRanges(words, duration);
+  if (!adjustments || Object.keys(adjustments).length === 0) return cuts;
+  return applyCutAdjustments(cuts, adjustments, duration);
 }
 
 /** Invert cut ranges into the ranges of the original media that remain. */

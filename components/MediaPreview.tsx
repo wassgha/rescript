@@ -6,8 +6,8 @@ import { useEditorStore } from "@/lib/store";
 import {
   cutRangeAt,
   formatTime,
-  getCutRanges,
   getEditedDuration,
+  getEffectiveCuts,
   originalToEdited,
 } from "@/lib/edits";
 
@@ -17,6 +17,7 @@ export default function MediaPreview() {
   const mediaKind = useEditorStore((s) => s.mediaKind);
   const words = useEditorStore((s) => s.words);
   const duration = useEditorStore((s) => s.duration);
+  const cutAdjustments = useEditorStore((s) => s.cutAdjustments);
   const playing = useEditorStore((s) => s.playing);
   const currentTime = useEditorStore((s) => s.currentTime);
   const setVideoEl = useEditorStore((s) => s.setVideoEl);
@@ -26,7 +27,10 @@ export default function MediaPreview() {
 
   const mediaRef = useRef<HTMLMediaElement | null>(null);
   const isAudio = mediaKind === "audio";
-  const cuts = useMemo(() => getCutRanges(words, duration), [words, duration]);
+  const cuts = useMemo(
+    () => getEffectiveCuts(words, duration, cutAdjustments),
+    [words, duration, cutAdjustments]
+  );
   const cutsRef = useRef(cuts);
   useEffect(() => {
     cutsRef.current = cuts;

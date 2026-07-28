@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Download, X } from "lucide-react";
 import { useEditorStore } from "@/lib/store";
-import { formatTime, getCutRanges, getEditedDuration, getKeepRanges } from "@/lib/edits";
+import { formatTime, getEditedDuration, getEffectiveCuts, getKeepRanges } from "@/lib/edits";
 import { exportAudio, exportVideo } from "@/lib/ffmpeg";
 
 export default function ExportDialog() {
@@ -13,6 +13,7 @@ export default function ExportDialog() {
   const mediaKind = useEditorStore((s) => s.mediaKind);
   const words = useEditorStore((s) => s.words);
   const duration = useEditorStore((s) => s.duration);
+  const cutAdjustments = useEditorStore((s) => s.cutAdjustments);
   const status = useEditorStore((s) => s.status);
   const setStatus = useEditorStore((s) => s.setStatus);
   const exportUrl = useEditorStore((s) => s.exportUrl);
@@ -21,7 +22,10 @@ export default function ExportDialog() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const cuts = useMemo(() => getCutRanges(words, duration), [words, duration]);
+  const cuts = useMemo(
+    () => getEffectiveCuts(words, duration, cutAdjustments),
+    [words, duration, cutAdjustments]
+  );
   const editedDuration = useMemo(() => getEditedDuration(cuts, duration), [cuts, duration]);
   const exporting = status === "exporting";
   const isAudio = mediaKind === "audio";
