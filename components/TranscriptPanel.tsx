@@ -4,12 +4,9 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "
 import { Eye, EyeOff, FileText, Pencil, RotateCcw, Scissors, WandSparkles, X } from "lucide-react";
 import { useEditorStore } from "@/lib/store";
 import { findFillerWordIds } from "@/lib/fillers";
-import {
-  isTranscriptFile,
-  parseTranscriptFile,
-  TRANSCRIPT_ACCEPT,
-} from "@/lib/parseTranscript";
+import type { ParsedTranscript } from "@/lib/parseTranscript";
 import type { SpeakerTurn, Word } from "@/lib/types";
+import PasteTranscriptDialog from "./PasteTranscriptDialog";
 
 export const SPEAKER_COLORS = [
   "#16a34a", // green
@@ -93,7 +90,7 @@ export default function TranscriptPanel() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const [correcting, setCorrecting] = useState<{
     ids: number[];
@@ -123,27 +120,40 @@ export default function TranscriptPanel() {
     deleteWords(fillerIds);
   }, [deleteWords, fillerIds]);
 
-  const handleImportTranscript = useCallback(
-    async (files: FileList | null) => {
-      const file = files?.[0];
-      if (!file) return;
-      if (!isTranscriptFile(file)) {
-        alert("Please choose an SRT, VTT, or JSON transcript.");
-        return;
-      }
+  const handleImportParsed = useCallback(
+    async (parsed: ParsedTranscript) => {
       if (
         words.length > 0 &&
-        !confirm("Replace the current transcript with this file?")
+        !confirm("Replace the current transcript with this one?")
       ) {
+        return false;
+      }
+      if (parsed.kind === "timed") {
+        importWords(parsed.words);
         return;
       }
-      try {
-        const imported = await parseTranscriptFile(file);
-        importWords(imported);
-      } catch (err) {
-        console.error(err);
-        alert(err instanceof Error ? err.message : "Could not read that transcript.");
+      // Plain text (Descript-style): align to existing timings when we have
+      // them; otherwise run Whisper and sync the reference text onto it.
+      const state = useEditorStore.getState();
+      if (state.words.length > 0) {
+        const { alignTranscript } = await import("@/lib/alignTranscript");
+        const aligned = alignTranscript(
+          parsed.tokens,
+          state.words,
+          state.duration
+        );
+        importWords(aligned);
+        return;
       }
+      if (!state.audio) {
+        throw new Error("Wait for the media to finish loading, then try again.");
+      }
+      state.setSyncTokens(parsed.tokens);
+      const { startTranscription } = await import("@/hooks/useTranscriber");
+      startTranscription(
+        state.audio,
+        state.duration || state.audio.length / 16000
+      );
     },
     [words.length, importWords]
   );
@@ -332,24 +342,22 @@ export default function TranscriptPanel() {
           {(status === "ready" || status === "error" || status === "transcribing") && (
             <>
               <button
-                onClick={() => importInputRef.current?.click()}
-                title="Replace transcript from SRT, VTT, or JSON"
+                onClick={() => setImportOpen(true)}
+                title="Paste or import SRT, VTT, JSON, or TXT"
                 className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs text-zinc-500 transition hover:bg-zinc-100"
               >
                 <FileText size={14} />
                 <span className="hidden sm:inline">Import</span>
               </button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept={TRANSCRIPT_ACCEPT}
-                className="hidden"
-                onChange={(e) => {
-                  const files = e.target.files;
-                  e.target.value = "";
-                  void handleImportTranscript(files);
-                }}
-              />
+              {importOpen && (
+                <PasteTranscriptDialog
+                  open
+                  title="Replace transcript"
+                  submitLabel={words.length > 0 ? "Sync transcript" : "Use transcript"}
+                  onClose={() => setImportOpen(false)}
+                  onParsed={handleImportParsed}
+                />
+              )}
             </>
           )}
           <button

@@ -19,7 +19,7 @@ the media. Export the final cut — without your file ever leaving your device.
 
 - 🔒 **Private by design** — no server, no auth, no uploads; all media processing happens on-device
 - 📝 **Word-level editing** — select words, press ⌫, the cut follows the text
-- 📥 **Import your own transcript** — skip Whisper and edit with an SRT, VTT, or JSON caption file
+- 📥 **Import your own transcript** — SRT / VTT / JSON with timestamps, or plain TXT synced to the audio
 - 🧹 **Filler removal** — one-click cut of "um", "uh", and similar fillers
 - 🗣️ **Speaker diarization** — the transcript is grouped by speaker
 - 🎬 **Timeline** — waveform, word labels, cut regions, playhead, zoom
@@ -63,7 +63,7 @@ audio track.
 2. **Transcribe** — Whisper runs in a Web Worker with `return_timestamps: "word"`,
    streaming text as it goes; pyannote assigns a speaker to every word.
    Choose **Whisper Base**, **Whisper Small**, or **Import transcript**
-   (SRT / VTT / JSON) on the homepage.
+   (SRT / VTT / JSON / TXT) on the homepage.
 3. **Edit** — deleting words produces "cut ranges" of the original media. The
    preview player skips them in real time and the timeline shows them in red.
    **Remove fillers** cuts every detected "um" / "uh" / etc. in one click.

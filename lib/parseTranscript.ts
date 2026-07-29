@@ -1,18 +1,25 @@
+import type { AlignToken } from "./alignTranscript";
 import type { Word } from "./types";
 
-/** Caption / transcript files we can turn into timed words. */
+/** Caption / transcript files we can turn into timed or syncable words. */
 export const TRANSCRIPT_ACCEPT =
-  ".srt,.vtt,.json,application/json,text/vtt,text/plain";
+  ".srt,.vtt,.json,.txt,application/json,text/vtt,text/plain";
 
-const TRANSCRIPT_EXT = /\.(srt|vtt|json)$/i;
+const TRANSCRIPT_EXT = /\.(srt|vtt|json|txt)$/i;
 
 export function isTranscriptFile(file: File): boolean {
   return (
     TRANSCRIPT_EXT.test(file.name) ||
     file.type === "application/json" ||
-    file.type === "text/vtt"
+    file.type === "text/vtt" ||
+    file.type === "text/plain"
   );
 }
+
+/** Timed captions, or plain text that must be synced to audio (Descript-style). */
+export type ParsedTranscript =
+  | { kind: "timed"; words: Word[] }
+  | { kind: "untimed"; tokens: AlignToken[] };
 
 interface Cue {
   start: number;
@@ -22,44 +29,85 @@ interface Cue {
 }
 
 /**
- * Parse an SRT, WebVTT, or JSON transcript into editor `Word`s.
- * Cue text is split on whitespace; each cue's time span is distributed
- * across its tokens by character length (same idea as word correction).
+ * Parse an SRT, WebVTT, JSON, or plain-text transcript.
+ * Timed formats become editor `Word`s; plain text becomes tokens for sync.
  */
-export function parseTranscript(text: string, filename = ""): Word[] {
+export function parseTranscript(text: string, filename = ""): ParsedTranscript {
   const trimmed = text.replace(/^\uFEFF/, "").trim();
   if (!trimmed) throw new Error("That transcript file is empty.");
 
   const lower = filename.toLowerCase();
-  let words: Word[];
+
+  // Explicit plain-text files always sync (even if they happen to look like SRT).
+  if (lower.endsWith(".txt")) {
+    return { kind: "untimed", tokens: tokensFromPlainText(trimmed) };
+  }
+
   if (lower.endsWith(".json") || looksLikeJson(trimmed)) {
-    words = wordsFromJson(trimmed);
-  } else if (lower.endsWith(".vtt") || /^WEBVTT/i.test(trimmed)) {
-    words = wordsFromCues(parseVtt(trimmed));
-  } else if (lower.endsWith(".srt") || looksLikeSrt(trimmed)) {
-    words = wordsFromCues(parseSrt(trimmed));
-  } else {
-    // Fallbacks when the extension is missing or wrong.
-    try {
-      words = wordsFromJson(trimmed);
-    } catch {
-      try {
-        words = wordsFromCues(parseVtt(trimmed));
-      } catch {
-        words = wordsFromCues(parseSrt(trimmed));
-      }
+    return { kind: "timed", words: wordsFromJson(trimmed) };
+  }
+  if (lower.endsWith(".vtt") || /^WEBVTT/i.test(trimmed)) {
+    return { kind: "timed", words: wordsFromCues(parseVtt(trimmed)) };
+  }
+  if (lower.endsWith(".srt") || looksLikeSrt(trimmed)) {
+    return { kind: "timed", words: wordsFromCues(parseSrt(trimmed)) };
+  }
+
+  // Extension missing / wrong: prefer timed formats, then plain text.
+  try {
+    return { kind: "timed", words: wordsFromJson(trimmed) };
+  } catch {
+    /* continue */
+  }
+  if (/^WEBVTT/i.test(trimmed)) {
+    return { kind: "timed", words: wordsFromCues(parseVtt(trimmed)) };
+  }
+  if (looksLikeSrt(trimmed)) {
+    return { kind: "timed", words: wordsFromCues(parseSrt(trimmed)) };
+  }
+
+  return { kind: "untimed", tokens: tokensFromPlainText(trimmed) };
+}
+
+export async function parseTranscriptFile(
+  file: File
+): Promise<ParsedTranscript> {
+  const text = await file.text();
+  return parseTranscript(text, file.name);
+}
+
+/**
+ * Split plain text into tokens. Speaker labels use Descript's convention:
+ * `Speaker Name: dialogue text` (label applies until the next labeled line).
+ */
+export function tokensFromPlainText(text: string): AlignToken[] {
+  const speakerIds = new Map<string, number>();
+  let nextSpeaker = 0;
+  let speaker = 0;
+  const tokens: AlignToken[] = [];
+
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  for (const rawLine of lines) {
+    let line = rawLine.trim();
+    if (!line) continue;
+
+    const labeled = line.match(/^([A-Za-z][\w\s'-]{0,40}):\s+(.+)$/);
+    if (labeled) {
+      const name = labeled[1].trim();
+      if (!speakerIds.has(name)) speakerIds.set(name, nextSpeaker++);
+      speaker = speakerIds.get(name)!;
+      line = labeled[2].trim();
+    }
+
+    for (const t of line.split(/\s+/).filter(Boolean)) {
+      tokens.push({ text: t, speaker });
     }
   }
 
-  if (words.length === 0) {
-    throw new Error("No timed words found in that transcript.");
+  if (tokens.length === 0) {
+    throw new Error("No words found in that transcript.");
   }
-  return words;
-}
-
-export async function parseTranscriptFile(file: File): Promise<Word[]> {
-  const text = await file.text();
-  return parseTranscript(text, file.name);
+  return tokens;
 }
 
 function looksLikeJson(text: string): boolean {
@@ -124,6 +172,9 @@ function wordsFromJson(text: string): Word[] {
     });
   }
 
+  if (words.length === 0) {
+    throw new Error("No timed words found in that transcript.");
+  }
   return words;
 }
 
@@ -131,10 +182,10 @@ function parseSrt(text: string): Cue[] {
   const blocks = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split(/\n\n+/);
   const cues: Cue[] = [];
   for (const block of blocks) {
-    const lines = block.split("\n").map((l) => l.trimEnd()).filter((l, i, arr) => {
-      // Keep blank lines out; allow content lines.
-      return l.length > 0 || i === arr.length - 1;
-    }).filter((l) => l.length > 0);
+    const lines = block
+      .split("\n")
+      .map((l) => l.trimEnd())
+      .filter((l) => l.length > 0);
     if (lines.length < 2) continue;
     let idx = 0;
     if (/^\d+$/.test(lines[0].trim())) idx = 1;
@@ -151,7 +202,6 @@ function parseSrt(text: string): Cue[] {
 
 function parseVtt(text: string): Cue[] {
   let body = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  // Drop header + optional metadata until the first blank line after WEBVTT.
   body = body.replace(/^WEBVTT[^\n]*\n(?:.*\n)*?(?=\n)/i, "");
   const blocks = body.split(/\n\n+/);
   const cues: Cue[] = [];
@@ -162,7 +212,6 @@ function parseVtt(text: string): Cue[] {
       .filter((l) => l.length > 0 && !l.startsWith("NOTE"));
     if (lines.length === 0) continue;
     let idx = 0;
-    // Optional cue identifier line before the arrow.
     if (!parseTimeRange(lines[0])) {
       if (lines.length < 2 || !parseTimeRange(lines[1])) continue;
       idx = 1;
@@ -186,7 +235,6 @@ function parseTimeRange(line: string): { start: number; end: number } | null {
   const parts = line.split(/\s*-->\s*/);
   if (parts.length < 2) return null;
   const start = parseTimestamp(parts[0].trim());
-  // End may have cue settings after it ("align:start position:0%").
   const endToken = parts[1].trim().split(/\s+/)[0];
   const end = parseTimestamp(endToken);
   if (start === null || end === null) return null;
@@ -206,7 +254,6 @@ function parseTimestamp(raw: string): number | null {
 
 function stripCueMeta(raw: string): { text: string; speaker?: string } {
   let text = raw
-    // VTT voice spans: <v Speaker>…</v> or <v Speaker>…
     .replace(/<\/?c[^>]*>/gi, "")
     .replace(/<\/?b>/gi, "")
     .replace(/<\/?i>/gi, "")
@@ -218,7 +265,6 @@ function stripCueMeta(raw: string): { text: string; speaker?: string } {
     speaker = voiceOpen[1].trim();
     text = voiceOpen[2].replace(/<\/v>\s*$/i, "");
   } else {
-    // Strip any remaining tags; capture leading "Name: " speaker labels.
     text = text.replace(/<[^>]+>/g, "");
     const labeled = text.match(/^([A-Za-z][\w\s'-]{0,40}):\s+([\s\S]+)$/);
     if (labeled) {
@@ -271,6 +317,10 @@ function wordsFromCues(cues: Cue[]): Word[] {
       });
       cursor = end;
     }
+  }
+
+  if (words.length === 0) {
+    throw new Error("No timed words found in that transcript.");
   }
   return words;
 }

@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { EditorStatus, ProgressInfo, Word } from "./types";
+import type { AlignToken } from "./alignTranscript";
 import {
   isModelChoice,
   isWhisperModel,
@@ -17,10 +18,10 @@ import {
   type ProjectMeta,
 } from "./projects";
 
-interface PendingTranscript {
-  name: string;
-  words: Word[];
-}
+/** Caption file chosen on the upload screen (timed) or plain text to sync. */
+export type PendingTranscript =
+  | { name: string; kind: "timed"; words: Word[] }
+  | { name: string; kind: "untimed"; tokens: AlignToken[] };
 
 interface EditorState {
   // Media
@@ -34,15 +35,20 @@ interface EditorState {
   /** Transcript source selected on the upload screen (Whisper or import). */
   model: ModelChoice;
   /**
-   * Caption file parsed on the upload screen when source is "import".
+   * Caption / text file parsed on the upload screen when source is "import".
    * Cleared when switching back to a Whisper model or after media loads.
    */
   pendingTranscript: PendingTranscript | null;
+  /**
+   * Untimed tokens waiting to be aligned after Whisper finishes (Descript-style
+   * sync). Set when loading media with a plain-text transcript.
+   */
+  syncTokens: AlignToken[] | null;
   /** IndexedDB project id when this session is persisted; null for a fresh upload mid-pipeline. */
   projectId: string | null;
   /**
    * When true, Editor extracts audio for the waveform but skips Whisper
-   * (restored projects / imported transcripts already have words).
+   * (restored projects / timed imported transcripts already have words).
    */
   skipTranscription: boolean;
 
@@ -69,14 +75,22 @@ interface EditorState {
   exportOpen: boolean;
 
   // Actions
-  /** Load media for editing. Pass `words` to skip Whisper and use that transcript. */
-  loadVideo: (file: File, options?: { words?: Word[] }) => void;
+  /**
+   * Load media for editing.
+   * - `words`: timed transcript → skip Whisper
+   * - `syncTokens`: plain text → run Whisper then align
+   */
+  loadVideo: (
+    file: File,
+    options?: { words?: Word[]; syncTokens?: AlignToken[] }
+  ) => void;
   /** Restore a saved project from IndexedDB (no re-transcription). */
   openProject: (id: string) => Promise<void>;
   /** Delete a saved project; if it is the active one, resets to the home screen. */
   removeProject: (id: string) => Promise<void>;
   setModel: (m: ModelChoice) => void;
   setPendingTranscript: (t: PendingTranscript | null) => void;
+  setSyncTokens: (t: AlignToken[] | null) => void;
   setDuration: (d: number) => void;
   setAudio: (a: Float32Array) => void;
   setStatus: (s: EditorStatus) => void;
@@ -86,7 +100,7 @@ interface EditorState {
   setWords: (words: Word[]) => void;
   /**
    * Replace the current transcript with an imported one (keeps media).
-   * Used when the user brings their own SRT/VTT/JSON instead of Whisper.
+   * Used for timed SRT/VTT/JSON, or after aligning plain text.
    */
   importWords: (words: Word[]) => void;
   deleteWords: (ids: number[]) => void;
@@ -117,6 +131,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   audio: null,
   model: "base",
   pendingTranscript: null,
+  syncTokens: null,
   projectId: null,
   skipTranscription: false,
 
@@ -141,21 +156,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const kind = detectMediaKind(file);
     if (!kind) return;
     const imported = options?.words;
+    const syncTokens = options?.syncTokens ?? null;
     if (imported && imported.length === 0) return;
+    if (syncTokens && syncTokens.length === 0) return;
     const prev = get().mediaUrl;
     if (prev) URL.revokeObjectURL(prev);
     const current = get().model;
+    const timedImport = Boolean(imported);
+    const syncImport = Boolean(syncTokens);
     set({
       videoFile: file,
       mediaUrl: URL.createObjectURL(file),
       mediaKind: kind,
       projectId: null,
-      skipTranscription: Boolean(imported),
-      model: imported ? "import" : isWhisperModel(current) ? current : "base",
+      // Timed captions skip Whisper; plain text still needs ASR for timing.
+      skipTranscription: timedImport,
+      syncTokens: syncImport ? syncTokens : null,
+      model:
+        timedImport || syncImport
+          ? "import"
+          : isWhisperModel(current)
+            ? current
+            : "base",
       pendingTranscript: null,
       status: "preparing",
       progress: {
-        message: imported ? "Loading media…" : "Loading media engine…",
+        message: timedImport
+          ? "Loading media…"
+          : syncImport
+            ? "Loading media to sync transcript…"
+            : "Loading media engine…",
         value: null,
       },
       words: imported ? imported : [],
@@ -185,6 +215,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       projectId: record.id,
       skipTranscription: true,
       pendingTranscript: null,
+      syncTokens: null,
       status: "preparing",
       progress: { message: "Loading media engine…", value: null },
       words: record.words,
@@ -211,12 +242,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setModel: (model) => {
     if (isWhisperModel(model)) {
       saveModelPreference(model);
-      set({ model, pendingTranscript: null });
+      set({ model, pendingTranscript: null, syncTokens: null });
     } else {
       set({ model });
     }
   },
   setPendingTranscript: (pendingTranscript) => set({ pendingTranscript }),
+  setSyncTokens: (syncTokens) => set({ syncTokens }),
   setDuration: (duration) => {
     set({ duration });
     if (get().status === "ready") bumpAutosave();
@@ -254,6 +286,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       status: "ready",
       progress: { message: "", value: null },
       skipTranscription: true,
+      syncTokens: null,
       model: "import",
     });
     bumpAutosave();
@@ -372,6 +405,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       audio: null,
       model: loadModelPreference(),
       pendingTranscript: null,
+      syncTokens: null,
       projectId: null,
       skipTranscription: false,
       status: "idle",

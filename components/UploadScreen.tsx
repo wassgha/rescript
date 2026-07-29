@@ -30,6 +30,7 @@ import {
   type ProjectMeta,
 } from "@/lib/projects";
 import { useEditorStore } from "@/lib/store";
+import type { AlignToken } from "@/lib/alignTranscript";
 import type { Word } from "@/lib/types";
 
 // The three media cards that stand in for the upload icon. Each carries its
@@ -153,7 +154,10 @@ function RecentProjects({
 export default function UploadScreen({
   onFile,
 }: {
-  onFile: (file: File, options?: { words?: Word[] }) => void;
+  onFile: (
+    file: File,
+    options?: { words?: Word[]; syncTokens?: AlignToken[] }
+  ) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -210,7 +214,11 @@ export default function UploadScreen({
           alert("Choose a transcript file from the source menu first.");
           return;
         }
-        onFile(file, { words: pending.words });
+        if (pending.kind === "timed") {
+          onFile(file, { words: pending.words });
+        } else {
+          onFile(file, { syncTokens: pending.tokens });
+        }
         return;
       }
       onFile(file);
@@ -333,7 +341,9 @@ export default function UploadScreen({
               <p className="mt-1 text-[13px] text-zinc-400">
                 {model === "import"
                   ? pendingTranscript
-                    ? `Will use ${pendingTranscript.name} · MP4, WebM, MOV, MP3, WAV, …`
+                    ? pendingTranscript.kind === "timed"
+                      ? `Will use ${pendingTranscript.name} · MP4, WebM, MOV, MP3, WAV, …`
+                      : `Will sync ${pendingTranscript.name} to your media · MP4, WebM, MOV, MP3, WAV, …`
                     : "Pick a transcript in the menu above, then drop your media"
                   : "MP4, WebM, MOV, MP3, WAV, M4A, …"}
               </p>
@@ -366,7 +376,7 @@ export default function UploadScreen({
 
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
-            { icon: Type, title: "Transcribe", text: "Whisper locally, or import SRT / VTT." },
+            { icon: Type, title: "Transcribe", text: "Whisper locally, or import SRT / TXT." },
             { icon: Scissors, title: "Edit", text: "Select words and hit delete to edit." },
             { icon: Clapperboard, title: "Export", text: "Render the final cut to MP4 or M4A." },
           ].map(({ icon: Icon, title, text }) => (
