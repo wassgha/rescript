@@ -44,3 +44,7 @@ next-env.d.ts
 # runtime assets copied from node_modules on postinstall
 /public/vendor/
 /public/coi-serviceworker.js
+
+# Swift SpeechAnalyzer helper build output (binary is copied to resources/bin)
+/native/speechanalyzer/.build/
+/resources/bin/rescript-speechanalyzer

@@ -19,6 +19,7 @@
     "lint": "eslint",
     "postinstall": "node scripts/copy-assets.mjs",
     "build:electron": "node scripts/build-electron.mjs",
+    "build:native": "make -C native/speechanalyzer build",
     "typecheck:electron": "tsc -p electron/tsconfig.json --noEmit",
     "electron:dev": "npm run build:electron && concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"node scripts/electron-dev.mjs\"",
     "export:desktop": "cross-env STATIC_EXPORT=1 NEXT_PUBLIC_ELECTRON=1 next build",
@@ -84,6 +85,13 @@
       "!electron-dist/**/*.map",
       "!**/node_modules/**"
     ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": ["**/*", "!.gitkeep"]
+      }
+    ],
     "asar": true,
     "mac": {
       "target": [
@@ -111,6 +119,7 @@
       "notarize": true,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Rescript can use the microphone for on-device speech transcription features.",
+        "NSSpeechRecognitionUsageDescription": "Rescript uses on-device speech recognition to transcribe your media with Apple SpeechAnalyzer.",
         "NSDocumentsFolderUsageDescription": "Rescript opens and exports video and audio files you select."
       }
     },

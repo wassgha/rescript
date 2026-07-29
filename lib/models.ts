@@ -1,6 +1,8 @@
 /** Transcription source choices offered on the upload screen. */
 export type WhisperModel = "base" | "small";
-export type ModelChoice = WhisperModel | "import";
+/** macOS 26+ SpeechAnalyzer backend (Electron desktop only). */
+export type SpeechAnalyzerModel = "speechanalyzer";
+export type ModelChoice = WhisperModel | "import" | SpeechAnalyzerModel;
 
 type DType = "fp32" | "fp16" | "q8" | "int8" | "uint8" | "q4" | "q4f16" | "bnb4";
 
@@ -50,9 +52,6 @@ export const MODELS: Record<WhisperModel, ModelInfo> = {
     description: "Faster download and transcription. Good for most clips.",
     size: "~200 MB",
     dtype: WHISPER_DTYPE,
-    // Do not set verbatimPrompt: forcing a long <|startofprev|> prompt via
-    // decoder_input_ids truncates long-form transcripts (e.g. drops the second
-    // speaker on mixed clips). Prefer post-process / filler tools instead.
   },
   small: {
     id: "onnx-community/whisper-small_timestamped",
@@ -63,32 +62,43 @@ export const MODELS: Record<WhisperModel, ModelInfo> = {
   },
 };
 
+/** UI metadata for the macOS SpeechAnalyzer option (not a Whisper HF model). */
+export const SPEECH_ANALYZER_INFO = {
+  label: "SpeechAnalyzer",
+  description: "Apple’s on-device speech model (macOS 26+, Electron).",
+  size: "System",
+} as const;
+
 export function isWhisperModel(value: unknown): value is WhisperModel {
   return value === "base" || value === "small";
 }
 
+export function isSpeechAnalyzerModel(value: unknown): value is SpeechAnalyzerModel {
+  return value === "speechanalyzer";
+}
+
 export function isModelChoice(value: unknown): value is ModelChoice {
-  return isWhisperModel(value) || value === "import";
+  return isWhisperModel(value) || value === "import" || isSpeechAnalyzerModel(value);
 }
 
 const MODEL_STORAGE_KEY = "rescript.model";
 
-/** Read the last-selected Whisper model from localStorage (defaults to base). */
-export function loadModelPreference(): WhisperModel {
+/** Read the last-selected persistent model from localStorage (defaults to base). */
+export function loadModelPreference(): WhisperModel | SpeechAnalyzerModel {
   if (typeof window === "undefined") return "base";
   try {
     const raw = window.localStorage.getItem(MODEL_STORAGE_KEY);
     // Ignore a stale "import" preference — that choice is session-only until a
     // transcript file is picked again.
-    if (isWhisperModel(raw)) return raw;
+    if (isWhisperModel(raw) || isSpeechAnalyzerModel(raw)) return raw;
   } catch {
     // private mode / disabled storage
   }
   return "base";
 }
 
-/** Persist the selected Whisper model for the next visit. */
-export function saveModelPreference(model: WhisperModel) {
+/** Persist the selected model for the next visit (Whisper or SpeechAnalyzer). */
+export function saveModelPreference(model: WhisperModel | SpeechAnalyzerModel) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(MODEL_STORAGE_KEY, model);

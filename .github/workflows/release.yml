@@ -43,6 +43,36 @@ jobs:
           echo "${{ secrets.APPLE_API_KEY }}" | base64 --decode > "$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
           chmod 600 "$RUNNER_TEMP/private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
 
+      # macOS: the SpeechAnalyzer helper needs the macOS 26 SDK. The macos-latest
+      # image (macOS 26) already defaults to Xcode 26.x, so this normally just
+      # confirms the SDK and moves on. The switch is a fallback for the case that
+      # bit this image before: a default Xcode pinned to an older major.
+      - name: Verify macOS 26 SDK
+        if: matrix.os == 'macos-latest'
+        run: |
+          sdk=$(xcrun --show-sdk-version 2>/dev/null || echo 0)
+          major=$(printf '%s' "$sdk" | cut -d. -f1)
+          case "$major" in ''|*[!0-9]*) major=0 ;; esac
+          if [ "$major" -ge 26 ]; then
+            echo "Default toolchain SDK $sdk supports SpeechAnalyzer."
+            exit 0
+          fi
+          echo "Default SDK is $sdk; looking for an Xcode 26+ install."
+          best=$(ls -d /Applications/Xcode_*.app 2>/dev/null \
+            | sed 's|.*/Xcode_||; s|\.app$||' \
+            | awk -F. '$1 >= 26' | sort -V | tail -1)
+          if [ -z "$best" ]; then
+            echo "::error::No Xcode 26+ on this runner; cannot build the SpeechAnalyzer helper." >&2
+            ls -d /Applications/Xcode*.app 2>/dev/null >&2 || true
+            exit 1
+          fi
+          sudo xcode-select -s "/Applications/Xcode_$best.app/Contents/Developer"
+          echo "Switched to Xcode $best (SDK $(xcrun --show-sdk-version))."
+
+      - name: Build SpeechAnalyzer helper
+        if: matrix.os == 'macos-latest'
+        run: make -C native/speechanalyzer build
+
       # macOS: build, sign (Developer ID), notarize, and publish to GitHub Releases.
       - name: Build, sign & publish (macOS)
         if: matrix.os == 'macos-latest'

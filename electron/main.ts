@@ -3,6 +3,11 @@ import { join, normalize, extname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { existsSync, statSync } from "node:fs";
 import { initAutoUpdater } from "./updater";
+import { IPC, type SpeechAnalyzerTranscribeRequest } from "./ipc/channels";
+import {
+  checkSpeechAnalyzer,
+  transcribeWithSpeechAnalyzer,
+} from "./speechAnalyzer";
 
 const isDev = !app.isPackaged;
 const DEV_SERVER_URL = process.env.ELECTRON_START_URL ?? "http://localhost:3000";
@@ -240,6 +245,20 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     if (!isDev) registerAppProtocol();
+
+    ipcMain.handle(IPC.speechAnalyzerCheck, async () => checkSpeechAnalyzer());
+    ipcMain.handle(
+      IPC.speechAnalyzerTranscribe,
+      async (event, req: SpeechAnalyzerTranscribeRequest) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        return transcribeWithSpeechAnalyzer(req, (progress) => {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send(IPC.speechAnalyzerProgress, progress);
+          }
+        });
+      }
+    );
+
     createWindow();
     initAutoUpdater();
 

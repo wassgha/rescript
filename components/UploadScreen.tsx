@@ -16,11 +16,8 @@ import {
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import GitHubLink from "./GitHubLink";
-import ModelSelector, {
-  ModelOption,
-  ModelOptionSeparator,
-} from "./ModelSelector";
-import ImportTranscriptOption from "./ImportTranscriptOption";
+import ModelSelector from "./ModelSelector";
+import TranscriptSourceOptions from "./TranscriptSourceOptions";
 import { useCrossOriginIsolated } from "@/hooks/useCrossOriginIsolated";
 import { detectMediaKind, MEDIA_ACCEPT } from "@/lib/media";
 import { formatTime } from "@/lib/edits";
@@ -267,10 +264,7 @@ export default function UploadScreen({
               <p className="ml-2 text-[15px] font-medium text-zinc-800">Rescript</p>
             </div>
             <ModelSelector groupLabel="Transcript source">
-              <ModelOption id="base" />
-              <ModelOption id="small" />
-              <ModelOptionSeparator />
-              <ImportTranscriptOption />
+              <TranscriptSourceOptions />
             </ModelSelector>
           </div>}
           <div
@@ -333,7 +327,9 @@ export default function UploadScreen({
                     ? pendingTranscript
                       ? `Will use ${pendingTranscript.name} · MP4, WebM, MOV, MP3, WAV, …`
                       : "Pick a transcript in the menu above, then drop your media"
-                    : "MP4, WebM, MOV, MP3, WAV, M4A, …"}
+                    : model === "speechanalyzer"
+                      ? "Transcribes on-device with Apple SpeechAnalyzer · MP4, WebM, MOV, MP3, WAV, …"
+                      : "MP4, WebM, MOV, MP3, WAV, M4A, …"}
                 </p>
               </>
             ) : (

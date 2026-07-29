@@ -18,7 +18,13 @@ import {
   Loader2,
   type LucideIcon,
 } from "lucide-react";
-import { MODELS, isWhisperModel, type ModelChoice } from "@/lib/models";
+import {
+  MODELS,
+  SPEECH_ANALYZER_INFO,
+  isSpeechAnalyzerModel,
+  isWhisperModel,
+  type ModelChoice,
+} from "@/lib/models";
 import { hydrateModelPreference, useEditorStore } from "@/lib/store";
 
 export type ModelOptionContextValue = {
@@ -167,6 +173,8 @@ export default function ModelSelector({
   const activeTrigger = triggers[model];
   // Prefer the option's registered trigger. Fall back carefully so an unmounted
   // custom option (e.g. import) never shows the raw id + default wave icon.
+  // SpeechAnalyzer shares the waveform icon with Whisper — both are "the app
+  // transcribes for you", as opposed to a user-supplied caption file.
   const TriggerIcon =
     activeTrigger?.icon ?? (model === "import" ? FileText : AudioLines);
   const triggerLabel =
@@ -175,7 +183,9 @@ export default function ModelSelector({
       ? MODELS[model].label
       : model === "import"
         ? "Import transcript"
-        : String(model));
+        : isSpeechAnalyzerModel(model)
+          ? SPEECH_ANALYZER_INFO.label
+          : String(model));
 
   // Always mount options (hidden when closed) so custom triggers stay registered.
   const options = children ?? (
@@ -256,9 +266,19 @@ export function ModelOption({
   const selected = selector.value === id;
 
   const resolvedLabel =
-    label ?? (isWhisperModel(id) ? MODELS[id].label : id);
+    label ??
+    (isWhisperModel(id)
+      ? MODELS[id].label
+      : isSpeechAnalyzerModel(id)
+        ? SPEECH_ANALYZER_INFO.label
+        : id);
   const resolvedMeta =
-    meta ?? (isWhisperModel(id) ? MODELS[id].size : undefined);
+    meta ??
+    (isWhisperModel(id)
+      ? MODELS[id].size
+      : isSpeechAnalyzerModel(id)
+        ? SPEECH_ANALYZER_INFO.size
+        : undefined);
 
   const optionCtx = useMemo<ModelOptionContextValue>(
     () => ({

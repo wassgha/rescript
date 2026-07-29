@@ -45,14 +45,15 @@ builds auto-update from GitHub Releases. Prefer the browser? Use the
 - 📦 **In-browser / desktop export** — frame-accurate MP4 (video) or M4A (audio) with ffmpeg.wasm
 - 🎧 **Audio files** — edit podcasts, voice notes, and interviews the same way as video
 - 🖥️ **Desktop app** — macOS, Windows, and Linux via Electron (signed + notarized on Mac)
+- 🍎 **SpeechAnalyzer** — optional on-device transcription via Apple’s Speech framework (macOS 26+, desktop)
 
 ## Stack
 
 | Piece | Tech |
 | --- | --- |
 | App | [Next.js](https://nextjs.org) + React + TypeScript + Tailwind |
-| Desktop | [Electron](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) (auto-update from GitHub Releases) |
-| Transcription | [transformers.js](https://github.com/huggingface/transformers.js) running [`whisper-base_timestamped`](https://huggingface.co/onnx-community/whisper-base_timestamped) or [`whisper-small_timestamped`](https://huggingface.co/onnx-community/whisper-small_timestamped) (WebGPU with WASM fallback) in a Web Worker |
+| Desktop | [Electron](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) (auto-update from GitHub Releases); optional macOS [SpeechAnalyzer](https://developer.apple.com/documentation/speech) helper |
+| Transcription | [transformers.js](https://github.com/huggingface/transformers.js) Whisper (WebGPU/WASM) in a Web Worker, **or** Apple SpeechAnalyzer on macOS 26+ desktop |
 | Speaker labels | [`pyannote-segmentation-3.0`](https://huggingface.co/onnx-community/pyannote-segmentation-3.0) (ONNX) |
 | Media processing | [ffmpeg.wasm](https://ffmpegwasm.netlify.app/) (multi-threaded) for audio extraction and export |
 | State | zustand |
@@ -63,6 +64,8 @@ builds auto-update from GitHub Releases. Prefer the browser? Use the
 npm install     # also copies ffmpeg/onnxruntime WASM into public/vendor
 npm run dev     # Next.js web app (http://localhost:3000)
 npm run electron:dev   # Electron shell + Next.js dev server
+# Optional (macOS 26+ only): build the SpeechAnalyzer helper
+make -C native/speechanalyzer build
 npm run build   # production web build
 npm run dist    # unsigned desktop installers into dist/
 npm run lint    # eslint
@@ -85,8 +88,8 @@ audio track. For desktop packaging, signing, and cutting releases, see
 1. **Extract** — ffmpeg.wasm decodes the audio track to mono 16 kHz PCM.
 2. **Transcribe** — Whisper runs in a Web Worker with `return_timestamps: "word"`,
    streaming text as it goes; pyannote assigns a speaker to every word.
-   Choose **Whisper Base**, **Whisper Small**, or **Import transcript**
-   (SRT / VTT / JSON) on the homepage.
+   On the macOS desktop app you can instead choose **SpeechAnalyzer** (Apple’s
+   on-device model). Or choose **Import transcript** (SRT / VTT / JSON).
 3. **Edit** — deleting words produces "cut ranges" of the original media. The
    preview player skips them in real time and the timeline shows them in red.
    **Remove fillers** cuts every detected "um" / "uh" / etc. in one click.

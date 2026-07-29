@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { isSpeechAnalyzerModel, isWhisperModel } from "@/lib/models";
 import { useEditorStore } from "@/lib/store";
 import { extractAudio, getFFmpeg } from "@/lib/ffmpeg";
 import { useTranscriber } from "@/hooks/useTranscriber";
+import { useSpeechAnalyzerTranscriber } from "@/hooks/useSpeechAnalyzer";
 import TopBar from "./TopBar";
 import UploadScreen from "./UploadScreen";
 import TranscriptPanel from "./TranscriptPanel";
@@ -12,9 +14,8 @@ import Timeline from "./Timeline";
 import ExportDialog from "./ExportDialog";
 import GitHubLink from "./GitHubLink";
 import { Download, Redo2, Undo2 } from "lucide-react";
-import { ModelOption, ModelOptionSeparator } from "./ModelSelector";
 import ModelSelector from "./ModelSelector";
-import ImportTranscriptOption from "./ImportTranscriptOption";
+import TranscriptSourceOptions from "./TranscriptSourceOptions";
 import LogoLoader from "./LogoLoader";
 
 /** How long the desktop mode-change overlay stays up. Matches the macOS
@@ -28,6 +29,7 @@ export default function Editor() {
   const skipTranscription = useEditorStore((s) => s.skipTranscription);
   const loadVideo = useEditorStore((s) => s.loadVideo);
   const { transcribe } = useTranscriber();
+  const { transcribeFile: transcribeSpeechAnalyzer } = useSpeechAnalyzerTranscriber();
 
   const canUndo = useEditorStore((s) => s.past.length > 0);
   const canRedo = useEditorStore((s) => s.future.length > 0);
@@ -41,11 +43,13 @@ export default function Editor() {
 
   // Processing pipeline: load ffmpeg -> extract audio -> (maybe) transcribe.
   // Restored projects already have words; they only need PCM for the waveform.
+  // SpeechAnalyzer runs in the Electron main process (skips the Whisper worker).
   const startedFor = useRef<File | null>(null);
   useEffect(() => {
     if (!videoFile || startedFor.current === videoFile) return;
     startedFor.current = videoFile;
     const restoreOnly = useEditorStore.getState().skipTranscription;
+    const model = useEditorStore.getState().model;
     (async () => {
       const s = useEditorStore.getState();
       try {
@@ -57,15 +61,19 @@ export default function Editor() {
         if (restoreOnly) {
           s.setStatus("ready");
           s.setProgress({ message: "", value: null });
-        } else {
+        } else if (isSpeechAnalyzerModel(model)) {
+          await transcribeSpeechAnalyzer(videoFile);
+        } else if (isWhisperModel(model)) {
           transcribe(audio, audio.length / 16000);
+        } else {
+          s.setError("Select a transcript source before dropping media.");
         }
       } catch (err) {
         console.error("Processing pipeline failed:", err);
         s.setError(err instanceof Error ? err.message : "Failed to process this file.");
       }
     })();
-  }, [videoFile, skipTranscription, transcribe]);
+  }, [videoFile, skipTranscription, transcribe, transcribeSpeechAnalyzer]);
 
   // The desktop shell opens as a small upload window and grows once the
   // three-pane editor takes over (and shrinks back on "start over").
@@ -134,10 +142,7 @@ export default function Editor() {
         <>
           {isElectron && <TopBar>
             <ModelSelector groupLabel="Transcript source">
-              <ModelOption id="base" />
-              <ModelOption id="small" />
-              <ModelOptionSeparator />
-              <ImportTranscriptOption />
+              <TranscriptSourceOptions />
             </ModelSelector>
           </TopBar>}
           <UploadScreen onFile={loadVideo} />

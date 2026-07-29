@@ -27,7 +27,7 @@ export function useTranscriber() {
   const transcribe = useCallback((audio: Float32Array, duration: number) => {
     const store = useEditorStore.getState();
     if (!isWhisperModel(store.model)) {
-      store.setError("Select Whisper Base or Small to transcribe.");
+      store.setError("Select Whisper Base or Small to transcribe with Whisper.");
       return;
     }
     const whisperModel = store.model;

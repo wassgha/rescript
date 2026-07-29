@@ -102,10 +102,11 @@ Everything else is derived:
 7. ✅ Flexible timeline editing: word-boundary drag, Split at playhead
    (scene boundaries), clip trim handles, manual cuts merged into export.
 8. ✅ Electron desktop shell with signed macOS / Windows / Linux releases.
+9. ✅ Native macOS SpeechAnalyzer as an optional transcription backend
+   (Whisper stays the default everywhere else).
 
 ## Future work
 
-- Native macOS SpeechAnalyzer as an optional transcription backend.
 - Larger Whisper variants + language selection UI; local model import for
   air-gapped first runs.
 - Smarter export: stream-copy for keyframe-aligned segments, WebCodecs-based

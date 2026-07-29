@@ -87,3 +87,7 @@ disabled in `npm run electron:dev` and only runs in packaged builds
 - Desktop builds set `NEXT_PUBLIC_ELECTRON=1` so the static export skips the
   COI service worker (headers come from the `app://` protocol). Google Analytics
   still loads in the desktop app the same as on the web.
+- The macOS **SpeechAnalyzer** helper lives under `native/speechanalyzer/`.
+  Release builds on `macos-latest` run `make -C native/speechanalyzer build`
+  before packaging; the signed binary is copied to `resources/bin/` and shipped
+  via electron-builder `extraResources`. Requires Xcode 26 / macOS 26 SDK.
