@@ -32,6 +32,7 @@
     "notes:preview": "tsx scripts/generate-release-notes.ts HEAD \"$(git tag --sort=-v:refname | head -1)\""
   },
   "dependencies": {
+    "@chatoctopus/timeline": "^0.3.0",
     "@ffmpeg/core-mt": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
@@ -39,6 +40,7 @@
     "@huggingface/transformers": "^4.2.0",
     "@next/third-parties": "^16.2.12",
     "@vercel/analytics": "^2.0.1",
+    "cfb": "^1.2.2",
     "coi-serviceworker": "^0.1.7",
     "lucide-react": "^1.27.0",
     "next": "16.2.12",

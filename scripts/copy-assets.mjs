@@ -120,6 +120,14 @@ writeFileSync(
   coiPrelude + readFileSync(coiSrc, "utf8")
 );
 
+// Metadata-only AAF scaffold for Pro Tools / Logic timeline export.
+const aafSrc = join(root, "assets/aaf");
+const aafDst = join(root, "public/vendor/aaf");
+mkdirSync(aafDst, { recursive: true });
+for (const f of readdirSync(aafSrc)) {
+  cpSync(join(aafSrc, f), join(aafDst, f));
+}
+
 console.log(
-  "[copy-assets] ffmpeg core + onnxruntime wasm + coi-serviceworker copied to public/"
+  "[copy-assets] ffmpeg core + onnxruntime wasm + coi-serviceworker + aaf scaffold copied to public/"
 );

@@ -1,0 +1,11 @@
+{
+  "maxClips": 64,
+  "editRate": 30,
+  "markerUrl": "file:///RESCRIPT_MEDIA_PLACEHOLDER",
+  "markerName": "RESCRIPT_MEDIA_PLACEHOLDER",
+  "sourceMobId": "urn:smpte:umid:060a2b34.01010105.01010f20.13000000.040078e3.beb94430.b7ae5183.e5fe733a",
+  "masterMobId": "urn:smpte:umid:060a2b34.01010105.01010f20.13000000.c28cf923.35fa45b3.ae4a1560.34ae9733",
+  "compMobId": "urn:smpte:umid:060a2b34.01010105.01010f20.13000000.5829115b.bdc94197.ad19d12f.d41e33d4",
+  "masterPictureSlot": 1,
+  "masterSoundSlot": 2
+}

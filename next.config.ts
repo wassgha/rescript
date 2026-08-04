@@ -9,8 +9,8 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // parakeet.js ships as raw ESM from src/; transpile for the worker bundle.
-  transpilePackages: ["parakeet.js"],
+  // ESM timeline / CFB helpers and parakeet.js ship modern/raw ESM; transpile for Next's bundler.
+  transpilePackages: ["@chatoctopus/timeline", "cfb", "parakeet.js"],
   ...(isExport
     ? {
         output: "export" as const,
