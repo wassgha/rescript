@@ -28,6 +28,33 @@ const MENU_LINKS = [
   { label: "Follow on X", href: X_PROFILE_URL, Icon: XIcon },
 ] as const;
 
+const TRANSCRIPTION_SETTINGS_STORAGE_KEY = "rescript.transcription.settings";
+const DEFAULT_TRANSCRIPTION_SETTINGS = {
+  maxSpeakers: 2,
+  onsetThreshold: 0.7,
+};
+
+function readTranscriptionSettings() {
+  if (typeof window === "undefined" || !window.localStorage) {
+   return DEFAULT_TRANSCRIPTION_SETTINGS;
+  }
+  try {
+   const raw = window.localStorage.getItem(TRANSCRIPTION_SETTINGS_STORAGE_KEY);
+   if (!raw) return DEFAULT_TRANSCRIPTION_SETTINGS;
+   const parsed = JSON.parse(raw) as Partial<typeof DEFAULT_TRANSCRIPTION_SETTINGS>;
+   return {
+     maxSpeakers: Number.isFinite(parsed.maxSpeakers)
+       ? Math.max(1, Math.round(Number(parsed.maxSpeakers)))
+       : DEFAULT_TRANSCRIPTION_SETTINGS.maxSpeakers,
+     onsetThreshold: Number.isFinite(parsed.onsetThreshold)
+       ? Math.max(0, Math.min(1, Number(parsed.onsetThreshold)))
+       : DEFAULT_TRANSCRIPTION_SETTINGS.onsetThreshold,
+   };
+  } catch {
+   return DEFAULT_TRANSCRIPTION_SETTINGS;
+  }
+}
+
 /**
  * Top-bar settings popover. Houses appearance, transcript source, and social
  * links for now — structure is section-based so more prefs can land here later.
@@ -37,6 +64,30 @@ export default function SettingsMenu() {
   const panelId = useId();
   const { appearance, setAppearance } = useAppearance();
   const { enabled: telemetry, setEnabled: setTelemetry } = useTelemetryPref();
+  const [transcriptionSettings, setTranscriptionSettings] = useState(() =>
+    readTranscriptionSettings()
+  );
+
+  const commitTranscriptionSettings = (
+    patch: Partial<typeof DEFAULT_TRANSCRIPTION_SETTINGS>
+  ) => {
+    const next = { ...transcriptionSettings, ...patch };
+    const normalized = {
+      maxSpeakers: Math.max(1, Math.round(Number(next.maxSpeakers))),
+      onsetThreshold: Math.max(0, Math.min(1, Number(next.onsetThreshold))),
+    };
+    setTranscriptionSettings(normalized);
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          TRANSCRIPTION_SETTINGS_STORAGE_KEY,
+          JSON.stringify(normalized)
+        );
+      }
+    } catch {
+      // localStorage may be unavailable in private browsing or storage-full modes.
+    }
+  };
 
   return (
     <Popover
@@ -90,6 +141,49 @@ export default function SettingsMenu() {
                 selected={appearance === "dark"}
                 onSelect={setAppearance}
               />
+            </div>
+          </section>
+
+          <section className="border-b border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+            <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
+              Transcription
+            </p>
+            <div className="space-y-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                  Max speakers
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={transcriptionSettings.maxSpeakers}
+                  onChange={(e) =>
+                    commitTranscriptionSettings({
+                      maxSpeakers: Number(e.target.value || 1),
+                    })
+                  }
+                  className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-[12px] outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                  Onset threshold
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={transcriptionSettings.onsetThreshold}
+                  onChange={(e) =>
+                    commitTranscriptionSettings({
+                      onsetThreshold: Number(e.target.value || 0),
+                    })
+                  }
+                  className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-[12px] outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                />
+              </label>
             </div>
           </section>
 
