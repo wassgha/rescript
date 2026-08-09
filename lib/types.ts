@@ -104,4 +104,8 @@ export interface WorkerRequest {
    * and is passed through for Parakeet alignment (Parakeet ASR still auto-detects).
    */
   language: import("./languages").TranscriptLanguage;
+  /** Optional speaker-cap setting for diarization post-processing. */
+  maxSpeakers?: number;
+  /** Optional diarization onset confidence threshold. */
+  onsetThreshold?: number;
 }

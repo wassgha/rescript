@@ -9,6 +9,33 @@ import type { WorkerResponse } from "@/lib/types";
 
 let activeWorker: Worker | null = null;
 
+const TRANSCRIPTION_SETTINGS_KEY = "rescript.transcription.settings";
+const DEFAULT_TRANSCRIPTION_SETTINGS = {
+  maxSpeakers: 2,
+  onsetThreshold: 0.7,
+};
+
+function readTranscriptionSettings() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return DEFAULT_TRANSCRIPTION_SETTINGS;
+  }
+  try {
+    const raw = window.localStorage.getItem(TRANSCRIPTION_SETTINGS_KEY);
+    if (!raw) return DEFAULT_TRANSCRIPTION_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<typeof DEFAULT_TRANSCRIPTION_SETTINGS>;
+    return {
+      maxSpeakers: Number.isFinite(parsed.maxSpeakers)
+        ? Math.max(1, Math.round(Number(parsed.maxSpeakers)))
+        : DEFAULT_TRANSCRIPTION_SETTINGS.maxSpeakers,
+      onsetThreshold: Number.isFinite(parsed.onsetThreshold)
+        ? Math.max(0, Math.min(1, Number(parsed.onsetThreshold)))
+        : DEFAULT_TRANSCRIPTION_SETTINGS.onsetThreshold,
+    };
+  } catch {
+    return DEFAULT_TRANSCRIPTION_SETTINGS;
+  }
+}
+
 /** Stop an in-flight ASR job (e.g. after importing a transcript). */
 export function cancelTranscription() {
   activeWorker?.terminate();
@@ -90,13 +117,22 @@ export function useTranscriber() {
       );
     };
 
+    const settings = readTranscriptionSettings();
+
     // Transfer, not copy: the worker takes ownership of the PCM and `audio` is
     // detached here. Nothing on the main thread reads it afterwards — the
     // waveform draws from the envelope the store built in setAudio — and on a
     // long recording the copy this replaces was hundreds of megabytes held for
     // the length of the run.
     workerRef.current.postMessage(
-      { audio, duration, model, language: transcriptLanguage },
+      {
+        audio,
+        duration,
+        model,
+        language: transcriptLanguage,
+        maxSpeakers: settings.maxSpeakers,
+        onsetThreshold: settings.onsetThreshold,
+      },
       [audio.buffer]
     );
   }, []);

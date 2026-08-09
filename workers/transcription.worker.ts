@@ -132,6 +132,10 @@ if (/apple/i.test(navigator.vendor)) {
 
 const DIARIZATION_MODEL = "onnx-community/pyannote-segmentation-3.0";
 const VAD_MODEL = "onnx-community/silero-vad";
+/** Limit diarized speaker IDs to the requested UI-friendly headroom. */
+const MAX_ALLOWED_SPEAKERS = 2;
+/** Raise the diarization onset confidence bar above the default soft-slice margin. */
+const ONSET_THRESHOLD = 0.7;
 /** Viterbi needs a frames x tokens lattice, so alignment runs in bounded batches. */
 const ALIGN_BATCH_MAX_S = 20;
 /** Context either side of a batch, so edge words are not clipped. */
@@ -984,14 +988,18 @@ async function refineWordTimestamps(
  * class indices are only meaningful within a pass, which is what the overlap and
  * `stitchDiarizationWindows` are for.
  */
-async function diarize(audio: Float32Array): Promise<DiarizationSegment[]> {
+async function diarize(
+  audio: Float32Array,
+  onsetThreshold = ONSET_THRESHOLD
+): Promise<DiarizationSegment[]> {
   const { processor, model } = await getDiarizer();
   // post_process_speaker_diarization is specific to the PyAnnote processor
   // and is not part of the generic Processor typings.
   const pyannote = processor as unknown as {
     post_process_speaker_diarization: (
       logits: unknown,
-      numSamples: number
+      numSamples: number,
+      opts?: { onsetThreshold?: number; onset_threshold?: number }
     ) => DiarizationSegment[][];
   };
 
@@ -1007,7 +1015,11 @@ async function diarize(audio: Float32Array): Promise<DiarizationSegment[]> {
     windows.push({
       offsetS: startSample / VAD_SAMPLE_RATE,
       durationS: slice.length / VAD_SAMPLE_RATE,
-      segments: pyannote.post_process_speaker_diarization(logits, slice.length)[0] ?? [],
+      segments:
+        pyannote.post_process_speaker_diarization(logits, slice.length, {
+          onsetThreshold,
+          onset_threshold: onsetThreshold,
+        })[0] ?? [],
     });
     postLive({
       type: "progress",
@@ -1019,7 +1031,11 @@ async function diarize(audio: Float32Array): Promise<DiarizationSegment[]> {
 }
 
 /** Assign a speaker to each word from the diarization segments. */
-function assignSpeakers(words: Word[], segments: DiarizationSegment[]) {
+function assignSpeakers(
+  words: Word[],
+  segments: DiarizationSegment[],
+  maxSpeakers = MAX_ALLOWED_SPEAKERS
+) {
   // Segment id 0 is "no speaker" (silence/noise); ignore it.
   const speech = segments.filter((s) => s.id !== 0);
   if (speech.length === 0) {
@@ -1033,6 +1049,7 @@ function assignSpeakers(words: Word[], segments: DiarizationSegment[]) {
   const byStart = [...speech].sort((a, b) => a.start - b.start);
   let cursor = 0;
 
+  const normalizedMax = Math.max(1, Math.round(maxSpeakers));
   const idMap = new Map<number, number>(); // pyannote id -> sequential index
   for (const w of words) {
     const mid = (w.start + w.end) / 2;
@@ -1057,7 +1074,10 @@ function assignSpeakers(words: Word[], segments: DiarizationSegment[]) {
       }
     }
     const raw = seg ? seg.id : -1;
-    if (raw >= 0 && !idMap.has(raw)) idMap.set(raw, idMap.size);
+    if (raw >= 0 && !idMap.has(raw)) {
+      const speakerId = (parseInt(String(raw), 10) % normalizedMax) + 1;
+      idMap.set(raw, speakerId);
+    }
     w.speaker = raw >= 0 ? (idMap.get(raw) as number) : 0;
   }
 }
@@ -1107,12 +1127,14 @@ function wordsFromParakeet(
 
 async function finishWithDiarization(
   words: Word[],
-  audio: Float32Array
+  audio: Float32Array,
+  onsetThreshold = ONSET_THRESHOLD,
+  maxSpeakers = MAX_ALLOWED_SPEAKERS
 ): Promise<Word[]> {
   try {
     post({ type: "progress", message: "Identifying speakers…", value: 0 });
-    const segments = await diarize(audio);
-    assignSpeakers(words, segments);
+    const segments = await diarize(audio, onsetThreshold);
+    assignSpeakers(words, segments, maxSpeakers);
   } catch (err) {
     console.warn("Speaker diarization failed; using a single speaker.", err);
   }
@@ -1122,7 +1144,9 @@ async function finishWithDiarization(
 async function runParakeet(
   audio: Float32Array,
   duration: number,
-  transcriptLanguage: TranscriptLanguage
+  transcriptLanguage: TranscriptLanguage,
+  maxSpeakers = MAX_ALLOWED_SPEAKERS,
+  onsetThreshold = ONSET_THRESHOLD
 ): Promise<Word[]> {
   // Overlap diarizer (+ language-matched aligner) with Parakeet load.
   getDiarizer().catch(() => {});
@@ -1201,14 +1225,16 @@ async function runParakeet(
     duration,
     transcriptLanguage
   );
-  return finishWithDiarization(words, audio);
+  return finishWithDiarization(words, audio, onsetThreshold, maxSpeakers);
 }
 
 async function runWhisper(
   audio: Float32Array,
   duration: number,
   choice: WhisperModel,
-  transcriptLanguage: TranscriptLanguage
+  transcriptLanguage: TranscriptLanguage,
+  maxSpeakers = MAX_ALLOWED_SPEAKERS,
+  onsetThreshold = ONSET_THRESHOLD
 ): Promise<Word[]> {
   // Overlap Whisper + Silero downloads; diarizer and language-matched aligner
   // warm in the background so both are cached by the time the transcript lands.
@@ -1402,20 +1428,39 @@ async function runWhisper(
     transcriptLanguage
   );
 
-  return finishWithDiarization(words, audio);
+  return finishWithDiarization(words, audio, onsetThreshold, maxSpeakers);
 }
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  const { audio, duration, model, language } = event.data;
+  const { audio, duration, model, language, maxSpeakers, onsetThreshold } = event.data;
   try {
     const choice: ModelId = model ?? "base";
     const transcriptLanguage: TranscriptLanguage = language ?? "en";
+    const normalizedMaxSpeakers = Number.isFinite(maxSpeakers)
+      ? Math.max(1, Math.round(Number(maxSpeakers)))
+      : MAX_ALLOWED_SPEAKERS;
+    const normalizedThreshold = Number.isFinite(onsetThreshold)
+      ? Math.max(0, Math.min(1, Number(onsetThreshold)))
+      : ONSET_THRESHOLD;
 
     let words: Word[];
     if (isParakeetModel(choice)) {
-      words = await runParakeet(audio, duration, transcriptLanguage);
+      words = await runParakeet(
+        audio,
+        duration,
+        transcriptLanguage,
+        normalizedMaxSpeakers,
+        normalizedThreshold
+      );
     } else if (isWhisperModel(choice)) {
-      words = await runWhisper(audio, duration, choice, transcriptLanguage);
+      words = await runWhisper(
+        audio,
+        duration,
+        choice,
+        transcriptLanguage,
+        normalizedMaxSpeakers,
+        normalizedThreshold
+      );
     } else {
       throw new Error(`Unknown speech model: ${String(choice)}`);
     }
