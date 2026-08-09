@@ -2,6 +2,12 @@
 
 import { useEffect } from "react";
 import { reportError } from "@/lib/sentry";
+import {
+  loadUiLocalePreference,
+  resolveUiLocale,
+  systemLanguages,
+  translate,
+} from "@/lib/i18n";
 
 /**
  * Last-resort boundary for a crash that escaped the editor's own error handling.
@@ -18,12 +24,17 @@ export default function GlobalError({
   error: Error & { digest?: string };
   unstable_retry: () => void;
 }) {
+  const locale = resolveUiLocale(
+    loadUiLocalePreference(),
+    systemLanguages()
+  );
+  const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
   useEffect(() => {
     reportError(error, "render");
   }, [error]);
 
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body
         style={{
           margin: 0,
@@ -35,7 +46,7 @@ export default function GlobalError({
           color: "var(--fg)",
         }}
       >
-        <title>Rescript — something went wrong</title>
+        <title>{t("globalError.title")}</title>
         <style>{`
           :root { --bg: #fafafa; --fg: #18181b; --muted: #71717a; --btn: #18181b; --btnfg: #fff; }
           @media (prefers-color-scheme: dark) {
@@ -44,11 +55,10 @@ export default function GlobalError({
         `}</style>
         <main style={{ padding: "2rem", textAlign: "center", maxWidth: "34rem" }}>
           <h1 style={{ fontSize: "17px", fontWeight: 600, margin: 0 }}>
-            Something went wrong
+            {t("globalError.heading")}
           </h1>
           <p style={{ color: "var(--muted)", fontSize: "13px", marginTop: "0.75rem" }}>
-            The editor hit an unexpected error. Your saved projects are still on
-            this device — reloading should bring them back.
+            {t("globalError.body")}
           </p>
           <button
             type="button"
@@ -65,7 +75,7 @@ export default function GlobalError({
               color: "var(--btnfg)",
             }}
           >
-            Try again
+            {t("common.retry")}
           </button>
         </main>
       </body>

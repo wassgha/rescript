@@ -1,6 +1,7 @@
 "use client";
 
 import { useId } from "react";
+import { useI18n } from "./I18nProvider";
 
 /** Filled silhouette of the Rescript "R", used to clip the sliding bars. */
 const R_PATH =
@@ -33,6 +34,7 @@ export default function LogoLoader({
   size?: number;
   className?: string;
 }) {
+  const { t } = useI18n();
   // Ids must be unique per instance, and React's contain colons that trip up url().
   const clipId = `logo-r-${useId().replace(/:/g, "")}`;
   const markHeight = size * 0.56;
@@ -40,7 +42,7 @@ export default function LogoLoader({
   return (
     <div
       role="img"
-      aria-label="Loading"
+      aria-label={t("common.loading")}
       className={`flex items-center justify-center rounded-[22%] bg-transparent text-zinc-900 dark:text-zinc-100 ${className}`}
       style={{ width: size, height: size }}
     >

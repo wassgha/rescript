@@ -9,6 +9,7 @@ import {
   type Platform,
 } from "@/lib/platform";
 import { usePlatform } from "@/hooks/usePlatform";
+import { useI18n } from "./I18nProvider";
 
 const DISMISSED_STORAGE_KEY = "rescript:desktop-banner-dismissed";
 
@@ -87,6 +88,7 @@ function PlatformIcon({ platform }: { platform: Platform }) {
  * the user dismisses it.
  */
 export default function DesktopAppBanner() {
+  const { t } = useI18n();
   const platform = usePlatform();
   const [dismissed, setDismissed] = useState(
     () => isElectron || readDismissed(),
@@ -100,9 +102,9 @@ export default function DesktopAppBanner() {
     <div className="relative flex h-11 shrink-0 items-center justify-center gap-3 border-b border-blue-200/60 bg-gradient-to-b from-blue-50/70 to-blue-100/50 pr-11 pl-3 text-[13px] text-blue-900 dark:border-blue-400/15 dark:from-blue-950/40 dark:to-blue-900/25 dark:text-blue-100">
       <p className="truncate">
         <span className="hidden sm:inline">
-          Want faster transcription and exports?{" "}
+          {t("banner.faster")}{" "}
         </span>
-        Get the Rescript desktop app
+        {t("banner.getDesktop")}
       </p>
       <a
         href={downloadUrlFor(platform)}
@@ -111,15 +113,15 @@ export default function DesktopAppBanner() {
         className="flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-white/70 pr-3.5 pl-3 text-[12px] font-medium text-blue-700 ring-1 ring-blue-300/60 transition hover:bg-white hover:ring-blue-400/70 dark:bg-white/10 dark:text-blue-100 dark:ring-white/15 dark:hover:bg-white/15 dark:hover:ring-white/25"
       >
         <PlatformIcon platform={platform} />
-        {label ? `Download for ${label}` : "Download"}
+        {label ? t("banner.downloadFor", { platform: label }) : t("common.download")}
       </a>
       <button
         onClick={() => {
           setDismissed(true);
           writeDismissed();
         }}
-        title="Dismiss"
-        aria-label="Dismiss"
+        title={t("banner.dismiss")}
+        aria-label={t("banner.dismiss")}
         className="absolute right-2.5 flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-blue-500 transition hover:bg-blue-500/10 hover:text-blue-800 dark:text-blue-300 dark:hover:bg-white/10 dark:hover:text-blue-100"
       >
         <X size={14} />

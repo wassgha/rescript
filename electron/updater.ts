@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog } from "electron";
 import log from "electron-log";
 import { autoUpdater } from "electron-updater";
+import { desktopText as t } from "./locale";
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // hourly
 
@@ -39,12 +40,12 @@ export function initAutoUpdater(): void {
     log.info("[updater] update downloaded", info.version);
     const opts = {
       type: "info" as const,
-      buttons: ["Restart", "Later"],
+      buttons: [t("restart"), t("later")],
       defaultId: 0,
       cancelId: 1,
-      title: "Update available",
-      message: `Rescript ${info.version} is ready to install.`,
-      detail: "Restart now to apply the update.",
+      title: t("updateTitle"),
+      message: t("updateMessage", { version: info.version }),
+      detail: t("updateDetail"),
     };
     const win = BrowserWindow.getFocusedWindow();
     void (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).then(

@@ -17,14 +17,18 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "prebuild": "node scripts/copy-assets.mjs",
     "start": "next start",
     "lint": "eslint",
+    "test:localization": "tsx tests/languages-test.ts && tsx tests/transcription-options-test.ts && tsx tests/i18n-test.ts",
     "postinstall": "patch-package && node scripts/copy-assets.mjs",
     "build:electron": "node scripts/build-electron.mjs",
     "typecheck:electron": "tsc -p electron/tsconfig.json --noEmit",
     "electron:dev": "npm run build:electron && concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"node scripts/electron-dev.mjs\"",
     "export:web": "cross-env STATIC_EXPORT=1 next build",
+    "preexport:web": "node scripts/copy-assets.mjs",
     "export:desktop": "cross-env STATIC_EXPORT=1 NEXT_PUBLIC_ELECTRON=1 next build",
+    "preexport:desktop": "node scripts/copy-assets.mjs",
     "dist": "npm run export:desktop && npm run build:electron && electron-builder --config.npmRebuild=false",
     "release": "npm run export:desktop && npm run build:electron && electron-builder --publish always --config.npmRebuild=false",
     "cut:patch": "npm version patch -m \"Release v%s\" && git push --follow-tags",
@@ -133,6 +137,11 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
+      "installerLanguages": [
+        "en_US",
+        "zh_CN"
+      ],
+      "multiLanguageInstaller": true,
       "artifactName": "${productName}-Setup.${ext}"
     },
     "linux": {

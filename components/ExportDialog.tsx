@@ -25,6 +25,8 @@ import {
   type TranscriptDocFormat,
 } from "@/lib/serializeTranscript";
 import { useCutRanges } from "@/hooks/useCutRanges";
+import { useI18n } from "./I18nProvider";
+import { localizeRuntimeMessage } from "@/lib/i18n";
 
 type ExportTab = "video" | "audio" | "transcript" | "subtitles";
 
@@ -58,6 +60,7 @@ const SUBTITLE_FORMATS: { value: SubtitleFormat; label: string }[] = [
 ];
 
 export default function ExportDialog() {
+  const { t } = useI18n();
   const open = useEditorStore((s) => s.exportOpen);
   const setOpen = useEditorStore((s) => s.setExportOpen);
   const videoFile = useEditorStore((s) => s.videoFile);
@@ -255,33 +258,33 @@ export default function ExportDialog() {
   }[] = [
     {
       id: "video",
-      label: "Video",
+      label: t("export.video"),
       icon: Film,
       disabled: isAudioProject,
       title: isAudioProject
-        ? "Video export isn’t available for audio-only projects"
+        ? t("export.videoUnavailable")
         : undefined,
     },
     {
       id: "audio",
-      label: "Audio",
+      label: t("export.audio"),
       icon: Music,
       disabled: !hasAudioTrack,
-      title: !hasAudioTrack ? "This file has no audio track" : undefined,
+      title: !hasAudioTrack ? t("export.noAudio") : undefined,
     },
     {
       id: "transcript",
-      label: "Transcript",
+      label: t("export.transcript"),
       icon: FileText,
       disabled: !hasWords,
-      title: !hasWords ? "Transcribe or import a transcript first" : undefined,
+      title: !hasWords ? t("export.noWordsFirst") : undefined,
     },
     {
       id: "subtitles",
-      label: "Subtitles",
+      label: t("export.subtitles"),
       icon: Captions,
       disabled: !hasWords,
-      title: !hasWords ? "Transcribe or import a transcript first" : undefined,
+      title: !hasWords ? t("export.noWordsFirst") : undefined,
     },
   ];
 
@@ -298,7 +301,7 @@ export default function ExportDialog() {
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            Export
+            {t("export.title")}
           </h2>
           <button
             onClick={() => setOpen(false)}
@@ -312,7 +315,7 @@ export default function ExportDialog() {
         <div
           className="mb-5 grid grid-cols-4 gap-0.5 rounded-xl bg-zinc-100 p-0.5 dark:bg-zinc-800"
           role="tablist"
-          aria-label="Export type"
+          aria-label={t("export.type")}
         >
           {tabs.map(({ id, label, icon: Icon, disabled, title }) => {
             const selected = activeTab === id;
@@ -340,25 +343,29 @@ export default function ExportDialog() {
 
         {(activeTab === "video" || activeTab === "audio") && (
           <div className="mb-5 grid grid-cols-3 gap-2 text-center">
-            <Stat label="Original" value={formatTime(duration)} />
-            <Stat label="Cuts" value={String(cuts.length)} />
-            <Stat label="Edited" value={formatTime(editedDuration)} accent />
+            <Stat label={t("export.statOriginal")} value={formatTime(duration)} />
+            <Stat label={t("export.statCuts")} value={String(cuts.length)} />
+            <Stat label={t("export.statEdited")} value={formatTime(editedDuration)} accent />
           </div>
         )}
 
         {activeTab === "video" && (
           <div className="mb-5 space-y-4">
             <OptionGroup
-              label="Format"
+              label={t("export.format")}
               value={videoFormat}
               options={VIDEO_FORMATS}
               disabled={exporting}
               onChange={setVideoFormatOption}
             />
             <OptionGroup
-              label="Resolution"
+              label={t("export.resolution")}
               value={resolution}
-              options={VIDEO_RESOLUTIONS}
+              options={VIDEO_RESOLUTIONS.map((option) =>
+                option.value === "original"
+                  ? { ...option, label: t("export.original") }
+                  : option
+              )}
               disabled={exporting}
               onChange={setResolutionOption}
             />
@@ -368,7 +375,7 @@ export default function ExportDialog() {
         {activeTab === "audio" && (
           <div className="mb-5">
             <OptionGroup
-              label="Format"
+              label={t("export.format")}
               value={audioFormat}
               options={AUDIO_FORMATS}
               disabled={exporting}
@@ -380,13 +387,17 @@ export default function ExportDialog() {
         {activeTab === "transcript" && (
           <div className="mb-5 space-y-3">
             <OptionGroup
-              label="Format"
+              label={t("export.format")}
               value={transcriptFormat}
-              options={TRANSCRIPT_FORMATS}
+              options={TRANSCRIPT_FORMATS.map((option) =>
+                option.value === "txt"
+                  ? { ...option, label: t("export.plainText") }
+                  : option
+              )}
               onChange={setTranscriptFormat}
             />
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Speaker-labeled text with cuts removed. No timestamps.
+              {t("export.transcriptHelp")}
             </p>
           </div>
         )}
@@ -394,21 +405,20 @@ export default function ExportDialog() {
         {activeTab === "subtitles" && (
           <div className="mb-5 space-y-3">
             <OptionGroup
-              label="Format"
+              label={t("export.format")}
               value={subtitleFormat}
               options={SUBTITLE_FORMATS}
               onChange={setSubtitleFormat}
             />
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              SRT and VTT use the edited timeline (cuts applied). JSON keeps the
-              full word list for re-import.
+              {t("export.subtitlesHelp")}
             </p>
           </div>
         )}
 
         {error && (
           <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-900/30 dark:bg-red-950/30 dark:text-red-900">
-            {error}
+            {localizeRuntimeMessage(error, t)}
           </p>
         )}
 
@@ -417,7 +427,7 @@ export default function ExportDialog() {
             <div>
               <div className="mb-2 flex items-center justify-between text-sm">
                 <span className="font-medium text-zinc-700 dark:text-zinc-200">
-                  Rendering in your browser…
+                  {t("export.rendering")}
                 </span>
                 <span className="tabular-nums text-zinc-400 dark:text-zinc-500">
                   {Math.round(progress * 100)}%
@@ -430,7 +440,7 @@ export default function ExportDialog() {
                 />
               </div>
               <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
-                Re-encoding with ffmpeg.wasm — longer files take a while.
+                {t("export.encodingHelp")}
               </p>
             </div>
           ) : exportUrl ? (
@@ -441,13 +451,13 @@ export default function ExportDialog() {
                 className="flex h-10 items-center justify-center gap-2 rounded-xl bg-neutral-600 px-4 text-sm font-medium text-white transition hover:bg-neutral-500 dark:bg-neutral-500 dark:hover:bg-neutral-400"
               >
                 <Download size={15} className="shrink-0" />
-                <span className="truncate">Download {mediaFileName}</span>
+                <span className="truncate">{t("export.downloadFile", { name: mediaFileName })}</span>
               </a>
               <button
                 onClick={startMediaExport}
                 className="h-10 rounded-xl text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
               >
-                Re-export with latest edits
+                {t("export.reexport")}
               </button>
             </div>
           ) : (
@@ -456,10 +466,12 @@ export default function ExportDialog() {
               className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
               <Download size={15} />
-              Export{" "}
-              {activeTab === "audio"
-                ? audioFormat.toUpperCase()
-                : videoFormat.toUpperCase()}
+              {t("export.exportFormat", {
+                format:
+                  activeTab === "audio"
+                    ? audioFormat.toUpperCase()
+                    : videoFormat.toUpperCase(),
+              })}
             </button>
           ))}
 
@@ -470,7 +482,7 @@ export default function ExportDialog() {
             className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             <Download size={15} />
-            Download .{transcriptFormat}
+            {t("export.downloadFormat", { format: transcriptFormat })}
           </button>
         )}
 
@@ -481,7 +493,7 @@ export default function ExportDialog() {
             className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             <Download size={15} />
-            Download .{subtitleFormat}
+            {t("export.downloadFormat", { format: subtitleFormat })}
           </button>
         )}
       </div>

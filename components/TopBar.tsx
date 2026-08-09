@@ -4,6 +4,7 @@ import { useEditorStore } from "@/lib/store";
 import Image from "next/image";
 import logo from "@/assets/logo.png";
 import { useWindowChrome } from "@/hooks/useWindowChrome";
+import { useI18n } from "./I18nProvider";
 
 function truncateMiddle(value: string, maxLength = 40): string {
   if (value.length <= maxLength) return value;
@@ -15,6 +16,7 @@ function truncateMiddle(value: string, maxLength = 40): string {
 }
 
 export default function TopBar({ children }: { children?: React.ReactNode }) {
+  const { t } = useI18n();
   const { draggable, trafficLights } = useWindowChrome();
   const videoFile = useEditorStore((s) => s.videoFile);
   const reset = useEditorStore((s) => s.reset);
@@ -27,7 +29,7 @@ export default function TopBar({ children }: { children?: React.ReactNode }) {
     >
       <button
         onClick={reset}
-        title="Start over"
+        title={t("topbar.startOver")}
         className="app-no-drag flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
       >
         <Image

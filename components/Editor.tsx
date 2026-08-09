@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { useEditorStore } from "@/lib/store";
 import { getCutRanges, isWordCutOut } from "@/lib/edits";
@@ -23,7 +23,6 @@ import MediaPreview from "./MediaPreview";
 import Timeline from "./Timeline";
 import ExportDialog from "./ExportDialog";
 import { Download, Redo2, Undo2 } from "lucide-react";
-import LogoLoader from "./LogoLoader";
 import SettingsMenu from "./SettingsMenu";
 import ModelSelector, {
   LanguageSection,
@@ -33,11 +32,7 @@ import ModelSelector, {
 import ImportTranscriptOption from "./ImportTranscriptOption";
 import { MODEL_ORDER } from "@/lib/models";
 import { isTypingTarget } from "@/lib/keyboard";
-
-/** How long the desktop mode-change overlay stays up. Matches the macOS
- *  `setBounds(..., animate)` duration plus a small buffer so the layout
- *  underneath isn't revealed mid-resize. */
-const WINDOW_MODE_OVERLAY_MS = 380;
+import { useI18n } from "./I18nProvider";
 
 /** Transcript and preview split, resizable in both orientations. Wide screens
  *  put the transcript first (left of the preview); stacked screens lead with
@@ -128,6 +123,7 @@ function EditorWorkspace() {
 }
 
 export default function Editor() {
+  const { t } = useI18n();
   const status = useEditorStore((s) => s.status);
   const videoFile = useEditorStore((s) => s.videoFile);
   const skipTranscription = useEditorStore((s) => s.skipTranscription);
@@ -139,9 +135,6 @@ export default function Editor() {
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const setExportOpen = useEditorStore((s) => s.setExportOpen);
-
-  const [modeTransitioning, setModeTransitioning] = useState(false);
-  const wasIdle = useRef(status === "idle");
 
   // File › Open Project… reaches the same picker the upload screen uses, from
   // anywhere in the app.
@@ -156,7 +149,7 @@ export default function Editor() {
       const { source, pendingTranscript } = useEditorStore.getState();
       if (source === "import") {
         if (!pendingTranscript) {
-          alert("Choose a transcript file from the source menu first.");
+          alert(t("editor.chooseTranscript"));
           return;
         }
         loadVideo(file, {
@@ -167,7 +160,7 @@ export default function Editor() {
       }
       loadVideo(file);
     },
-    [loadVideo]
+    [loadVideo, t]
   );
 
   // The pipeline needs SharedArrayBuffer, so a file picked before the page is
@@ -188,7 +181,7 @@ export default function Editor() {
     (file: File | undefined) => {
       if (!file) return;
       if (!detectMediaKind(file)) {
-        alert("Please choose a video or audio file.");
+        alert(t("editor.chooseMedia"));
         return;
       }
       if (!isolated) {
@@ -197,7 +190,7 @@ export default function Editor() {
       }
       startMenuFile(file);
     },
-    [isolated, startMenuFile]
+    [isolated, startMenuFile, t]
   );
 
   // Daily-active signal: reports the launch, then again on each day rollover so
@@ -247,18 +240,11 @@ export default function Editor() {
     })();
   }, [videoFile, skipTranscription, transcribe]);
 
-  // The desktop shell opens as a small upload window and grows once the
-  // three-pane editor takes over (and shrinks back on "start over").
-  // Cover the swap with a brief overlay so the layout reflow isn't visible
-  // while the window animates between sizes.
+  // The main process uses this mode only to preserve the native close behavior
+  // (close project first, then close the upload window). It no longer resizes
+  // the window; user-chosen bounds are persisted by Electron instead.
   useEffect(() => {
-    const idle = status === "idle";
-    window.rescriptDesktop?.setWindowMode(idle ? "compact" : "expanded");
-    if (!isElectron || wasIdle.current === idle) return;
-    wasIdle.current = idle;
-    setModeTransitioning(true);
-    const timer = window.setTimeout(() => setModeTransitioning(false), WINDOW_MODE_OVERLAY_MS);
-    return () => window.clearTimeout(timer);
+    window.rescriptDesktop?.setWindowMode(status === "idle" ? "compact" : "expanded");
   }, [status]);
 
   // Global shortcuts: space = play/pause, ⌘Z / ⇧⌘Z = undo / redo, S = split,
@@ -349,7 +335,7 @@ export default function Editor() {
       {status === "idle" ? (
         <>
           {isElectron && <TopBar>
-            <ModelSelector groupLabel="Transcript source">
+            <ModelSelector groupLabel={t("model.transcriptSource")}>
               {MODEL_ORDER.map((id) => (
                 <ModelOption key={id} id={id} />
               ))}
@@ -369,7 +355,7 @@ export default function Editor() {
             <button
               onClick={undo}
               disabled={!canUndo}
-              title="Undo (⌘Z)"
+              title={t("editor.undo")}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <Undo2 size={16} />
@@ -377,7 +363,7 @@ export default function Editor() {
             <button
               onClick={redo}
               disabled={!canRedo}
-              title="Redo (⇧⌘Z)"
+              title={t("editor.redo")}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 cursor-pointer disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <Redo2 size={16} />
@@ -389,7 +375,7 @@ export default function Editor() {
               className="flex ml-1 h-8 items-center gap-1.5 rounded-full bg-zinc-900 px-4 text-[13px] font-medium text-white transition hover:bg-zinc-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
               <Download size={14} />
-              Export
+              {t("editor.export")}
             </button>
             <div className="mx-1 h-5 w-px bg-zinc-200 dark:bg-zinc-700" />
             <SettingsMenu />
@@ -397,15 +383,6 @@ export default function Editor() {
           <EditorWorkspace />
           <Timeline />
         </>
-      )}
-      {modeTransitioning && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950"
-          aria-busy="true"
-          aria-live="polite"
-        >
-          <LogoLoader size={44} />
-        </div>
       )}
       {isElectron && (
         // Present in the layout tree (not display:none) so the native menu's

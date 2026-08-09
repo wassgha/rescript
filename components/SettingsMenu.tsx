@@ -15,17 +15,25 @@ import { useAppearance } from "@/hooks/useAppearance";
 import { useTelemetryPref } from "@/hooks/useTelemetryPref";
 import Popover, { PopoverContent, PopoverTrigger } from "./Popover";
 import type { Appearance } from "@/lib/theme";
+import { useI18n } from "./I18nProvider";
+import { useEditorStore } from "@/lib/store";
+import {
+  TRANSCRIPT_LANGUAGE_PREFERENCE_ORDER,
+  TRANSCRIPT_LANGUAGES,
+  type TranscriptLanguagePreference,
+} from "@/lib/languages";
+import type { UiLocalePreference } from "@/lib/i18n";
 
 const MENU_LINKS = [
-  { label: "Support / feedback", href: DISCORD_INVITE_URL, Icon: DiscordIcon },
+  { labelKey: "settings.support", href: DISCORD_INVITE_URL, Icon: DiscordIcon },
   {
-    label: "Report an issue",
+    labelKey: "settings.reportIssue",
     href: `${GITHUB_REPO_URL}/issues`,
     Icon: Bug,
   },
-  { label: "Homepage", href: WEBSITE_URL, Icon: HomeIcon },
-  { label: "Github", href: GITHUB_REPO_URL, Icon: GitHubIcon },
-  { label: "Follow on X", href: X_PROFILE_URL, Icon: XIcon },
+  { labelKey: "settings.homepage", href: WEBSITE_URL, Icon: HomeIcon },
+  { labelKey: "settings.github", href: GITHUB_REPO_URL, Icon: GitHubIcon },
+  { labelKey: "settings.followX", href: X_PROFILE_URL, Icon: XIcon },
 ] as const;
 
 /**
@@ -37,6 +45,9 @@ export default function SettingsMenu() {
   const panelId = useId();
   const { appearance, setAppearance } = useAppearance();
   const { enabled: telemetry, setEnabled: setTelemetry } = useTelemetryPref();
+  const { t, preference, setPreference } = useI18n();
+  const transcriptLanguage = useEditorStore((s) => s.transcriptLanguage);
+  const setTranscriptLanguage = useEditorStore((s) => s.setTranscriptLanguage);
 
   return (
     <Popover
@@ -49,11 +60,11 @@ export default function SettingsMenu() {
         <PopoverTrigger>
           <button
             type="button"
-            aria-label="Settings"
+            aria-label={t("common.settings")}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={panelId}
-            title="Settings"
+            title={t("common.settings")}
             onClick={() => setOpen((v) => !v)}
             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
@@ -64,28 +75,28 @@ export default function SettingsMenu() {
         <PopoverContent
           id={panelId}
           role="dialog"
-          aria-label="Settings"
+          aria-label={t("common.settings")}
           className="z-40 w-[15rem] overflow-hidden"
         >
           <section className="border-b border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
             <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
-              Appearance
+              {t("settings.appearance")}
             </p>
             <div
               className="grid grid-cols-2 gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800"
               role="radiogroup"
-              aria-label="Appearance"
+              aria-label={t("settings.appearance")}
             >
               <AppearanceOption
                 value="light"
-                label="Light"
+                label={t("settings.light")}
                 icon={Sun}
                 selected={appearance === "light"}
                 onSelect={setAppearance}
               />
               <AppearanceOption
                 value="dark"
-                label="Dark"
+                label={t("settings.dark")}
                 icon={Moon}
                 selected={appearance === "dark"}
                 onSelect={setAppearance}
@@ -93,10 +104,53 @@ export default function SettingsMenu() {
             </div>
           </section>
 
+          <section className="border-b border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+            <label className="block text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
+              {t("settings.interfaceLanguage")}
+              <select
+                value={preference}
+                onChange={(event) =>
+                  setPreference(event.target.value as UiLocalePreference)
+                }
+                className="mt-2 block h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-[12px] text-zinc-700 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+              >
+                <option value="system">{t("common.system")}</option>
+                <option value="en">{t("language.english")}</option>
+                <option value="zh-CN">{t("language.simplifiedChinese")}</option>
+              </select>
+            </label>
+          </section>
+
+          <section className="border-b border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+            <label className="block text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
+              {t("settings.transcriptLanguage")}
+              <select
+                value={transcriptLanguage}
+                onChange={(event) =>
+                  setTranscriptLanguage(
+                    event.target.value as TranscriptLanguagePreference
+                  )
+                }
+                className="mt-2 block h-8 w-full rounded-lg border border-zinc-200 bg-white px-2 text-[12px] text-zinc-700 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+              >
+                {TRANSCRIPT_LANGUAGE_PREFERENCE_ORDER.map((id) => (
+                  <option key={id} value={id}>
+                    {id === "auto"
+                      ? t("common.auto")
+                      : TRANSCRIPT_LANGUAGES[id].nativeLabel}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-1.5 text-[10px] leading-snug text-zinc-400 dark:text-zinc-500">
+              {t("settings.transcriptLanguageHelp")}
+            </p>
+          </section>
+
           <section className="border-b border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800">
-            {MENU_LINKS.map(({ label, href, Icon }) => (
+            {MENU_LINKS.map(({ labelKey, href, Icon }) => (
               <a
-                key={label}
+                key={labelKey}
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -109,7 +163,7 @@ export default function SettingsMenu() {
                 <span className="shrink-0 text-zinc-400 dark:text-zinc-500">
                   <Icon size={14} />
                 </span>
-                <span className="flex-1">{label}</span>
+                <span className="flex-1">{t(labelKey)}</span>
                 <ExternalLink
                   size={12}
                   className="shrink-0 text-zinc-300 dark:text-zinc-600"
@@ -120,7 +174,7 @@ export default function SettingsMenu() {
 
           <section className="px-2 py-2.5">
             <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
-              Privacy
+              {t("settings.privacy")}
             </p>
             <label className="flex cursor-pointer items-start gap-2.5">
               <input
@@ -131,10 +185,10 @@ export default function SettingsMenu() {
               />
               <span>
                 <span className="block text-[12px] text-zinc-700 dark:text-zinc-300">
-                  Help improve the app
+                  {t("settings.helpImprove")}
                 </span>
                 <span className="mt-0.5 block text-[11px] leading-snug text-zinc-400 dark:text-zinc-500">
-                  Send anonymous feature usage statistics and crash reports.
+                  {t("settings.telemetryHelp")}
                 </span>
               </span>
             </label>

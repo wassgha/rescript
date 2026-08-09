@@ -2,6 +2,7 @@ export const GITHUB_REPO_URL = "https://github.com/wassgha/rescript";
 export const DISCORD_INVITE_URL = "https://discord.gg/qJAhYFydat";
 export const X_PROFILE_URL = "https://x.com/wassgha";
 export const WEBSITE_URL = "https://getrescript.com";
+import { useI18n } from "./I18nProvider";
 
 export function GitHubIcon({ size }: { size: number }) {
   return (
@@ -49,19 +50,19 @@ const LINKS = [
   {
     label: "GitHub",
     href: GITHUB_REPO_URL,
-    ariaLabel: "GitHub repository",
+    ariaKey: "social.githubRepo" as const,
     Icon: GitHubIcon,
   },
   {
     label: "Discord",
     href: DISCORD_INVITE_URL,
-    ariaLabel: "Discord server",
+    ariaKey: "social.discordServer" as const,
     Icon: DiscordIcon,
   },
   {
     label: "X",
     href: X_PROFILE_URL,
-    ariaLabel: "X profile",
+    ariaKey: "social.xProfile" as const,
     Icon: XIcon,
   },
 ];
@@ -72,6 +73,7 @@ export default function SocialLinks({
 }: {
   variant?: "icon" | "text";
 }) {
+  const { t } = useI18n();
   if (variant === "text") {
     return (
       <div className="flex items-center gap-3">
@@ -93,14 +95,14 @@ export default function SocialLinks({
 
   return (
     <>
-      {LINKS.map(({ label, href, ariaLabel, Icon }) => (
+      {LINKS.map(({ label, href, ariaKey, Icon }) => (
         <a
           key={label}
           href={href}
           target="_blank"
           rel="noopener noreferrer"
           title={label}
-          aria-label={ariaLabel}
+          aria-label={t(ariaKey)}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-300 transition hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
         >
           <Icon size={16} />

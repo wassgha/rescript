@@ -41,6 +41,7 @@ import { VAD_SAMPLE_RATE } from "@/lib/vad";
 import { peakBetween } from "@/lib/waveform";
 import { useCutRanges } from "@/hooks/useCutRanges";
 import { useIsDark } from "@/hooks/useIsDark";
+import { useI18n } from "./I18nProvider";
 
 const RULER_H = 18;
 const WORDBAR_H = 28;
@@ -95,6 +96,7 @@ type DragKind =
   | { type: "trim"; edge: "in" | "out"; time: number; lo: number; hi: number };
 
 export default function Timeline() {
+  const { t } = useI18n();
   const waveform = useEditorStore((s) => s.waveform);
   const words = useEditorStore((s) => s.words);
   const sceneBoundaries = useEditorStore((s) => s.sceneBoundaries);
@@ -614,7 +616,10 @@ export default function Timeline() {
           </span>
           {trimmed > 0.01 && (
             <span
-              title={`${formatTime(trimmed)} removed — original length ${formatTime(duration)}`}
+              title={t("timeline.removed", {
+                trimmed: formatTime(trimmed),
+                duration: formatTime(duration),
+              })}
               className="hidden sm:inline-block shrink-0 font-mono rounded-sm bg-red-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums leading-none text-red-600 dark:bg-red-950/40 dark:text-red-400"
             >
               −{formatTime(trimmed)}
@@ -627,7 +632,7 @@ export default function Timeline() {
             type="button"
             disabled={!ready}
             onClick={() => skip(-5)}
-            title="Back 5 s"
+            title={t("timeline.back5")}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 dark:disabled:text-zinc-600"
           >
             <ChevronLeft size={14} />
@@ -636,7 +641,7 @@ export default function Timeline() {
             type="button"
             disabled={!ready}
             onClick={togglePlay}
-            title="Play / pause (space)"
+            title={t("timeline.playPause")}
             className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-900 transition hover:bg-zinc-100 active:scale-95 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent dark:text-zinc-100 dark:hover:bg-zinc-800 dark:disabled:text-zinc-600"
           >
             {playing ? (
@@ -649,7 +654,7 @@ export default function Timeline() {
             type="button"
             disabled={!ready}
             onClick={() => skip(5)}
-            title="Forward 5 s"
+            title={t("timeline.forward5")}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 dark:disabled:text-zinc-600"
           >
             <ChevronRight size={14} />
@@ -665,8 +670,8 @@ export default function Timeline() {
             }}
             title={
               splitOk
-                ? "Split clip at playhead (S)"
-                : "Move the playhead onto a kept region to split"
+                ? t("timeline.splitTitle")
+                : t("timeline.splitDisabled")
             }
             className={`flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition ${
               ready && splitOk
@@ -675,7 +680,7 @@ export default function Timeline() {
             }`}
           >
             <SquareSplitHorizontal size={13} />
-            <span className="hidden sm:inline">Split</span>
+            <span className="hidden sm:inline">{t("timeline.split")}</span>
             <kbd
               className={`hidden rounded px-1 py-px text-[10px] font-normal sm:inline ${
                 ready && splitOk
@@ -695,8 +700,8 @@ export default function Timeline() {
             }}
             title={
               deleteOk
-                ? "Delete selected clip (Delete)"
-                : "Select a clip on the timeline to delete"
+                ? t("timeline.deleteTitle")
+                : t("timeline.deleteDisabled")
             }
             className={`flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition ${
               ready && deleteOk
@@ -705,7 +710,7 @@ export default function Timeline() {
             }`}
           >
             <Trash2 size={13} />
-            <span className="hidden sm:inline">Delete</span>
+            <span className="hidden sm:inline">{t("timeline.delete")}</span>
             <kbd
               className={`hidden rounded px-1 py-px text-[10px] font-normal sm:inline ${
                 ready && deleteOk
@@ -731,8 +736,8 @@ export default function Timeline() {
             }}
             title={
               restoreOk
-                ? "Restore selected cut (Delete)"
-                : "Select a cut or silence section on the timeline to restore"
+                ? t("timeline.restoreTitle")
+                : t("timeline.restoreDisabled")
             }
             className={`flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition ${
               ready && restoreOk
@@ -741,7 +746,7 @@ export default function Timeline() {
             }`}
           >
             <RotateCcw size={13} />
-            <span className="hidden sm:inline">Restore</span>
+            <span className="hidden sm:inline">{t("timeline.restore")}</span>
             <kbd
               className={`hidden rounded px-1 py-px text-[10px] font-normal sm:inline ${
                 ready && restoreOk
@@ -760,7 +765,7 @@ export default function Timeline() {
               type="button"
               onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z / 1.5))}
               disabled={zoom <= MIN_ZOOM}
-              title="Zoom out"
+              title={t("timeline.zoomOut")}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 dark:disabled:text-zinc-600"
             >
               <ZoomOut size={14} />
@@ -769,7 +774,7 @@ export default function Timeline() {
               type="button"
               onClick={() => setZoom(1)}
               disabled={zoom === 1}
-              title="Fit to window"
+              title={t("timeline.fit")}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 dark:disabled:text-zinc-600"
             >
               <Maximize2 size={13} />
@@ -778,7 +783,7 @@ export default function Timeline() {
               type="button"
               onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z * 1.5))}
               disabled={zoom >= MAX_ZOOM}
-              title="Zoom in — drag word edges to refine timing"
+              title={t("timeline.zoomIn")}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 dark:disabled:text-zinc-600"
             >
               <ZoomIn size={14} />
@@ -822,8 +827,8 @@ export default function Timeline() {
                     <button
                       type="button"
                       data-tl-interactive
-                      title="Join these clips (remove split)"
-                      aria-label="Join clips"
+                      title={t("timeline.joinClips")}
+                      aria-label={t("transcript.joinClips")}
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => joinAtSplit(e, b.id)}
                       className="pointer-events-auto flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border border-zinc-300 bg-white text-zinc-500 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-100 hover:text-zinc-800 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
@@ -869,7 +874,7 @@ export default function Timeline() {
                       bottom: 4,
                       opacity: selected ? 1 : 0.7,
                     }}
-                    title="Trim clip start"
+                    title={t("timeline.trimStart")}
                   >
                     <div
                       className={`h-full w-1 rounded-full transition-all duration-150 ${
@@ -889,7 +894,7 @@ export default function Timeline() {
                       bottom: 4,
                       opacity: selected ? 1 : 0.7,
                     }}
-                    title="Trim clip end"
+                    title={t("timeline.trimEnd")}
                   >
                     <div
                       className={`h-full w-1 rounded-full transition-all duration-150 ${
@@ -948,10 +953,10 @@ export default function Timeline() {
                   title={
                     placeholder
                       ? showHandles
-                        ? "… detected hesitation — drag edges to adjust, or Remove filler words to cut"
-                        : "… detected hesitation — cut with Remove filler words"
+                        ? t("timeline.hesitationAdjust")
+                        : t("timeline.hesitationCut")
                       : showHandles
-                        ? `${w.text} — drag edges to adjust timing`
+                        ? t("timeline.dragTiming", { word: w.text })
                         : w.text
                   }
                   onPointerEnter={() => setHoveredWordId(w.id)}
@@ -1049,7 +1054,7 @@ export default function Timeline() {
 
         {pps < SMALL_PPS && ready && (
           <div className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-zinc-900/70 px-2.5 py-1 text-[10px] text-white/90 backdrop-blur-sm transition-opacity dark:bg-zinc-100/80 dark:text-zinc-900">
-            Scroll to zoom in/out
+            {t("timeline.scrollZoom")}
           </div>
         )}
       </div>

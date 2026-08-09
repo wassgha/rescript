@@ -30,8 +30,15 @@ import {
 import type { SpeakerInfo } from "@/lib/types";
 import { useWordAnchorFloating } from "@/hooks/useWordAnchorFloating";
 import Popover, { PopoverContent, PopoverTrigger } from "./Popover";
+import { useI18n } from "./I18nProvider";
+import type { Translate } from "@/lib/i18n";
 
 type PickerMode = "change" | "rename" | "replace";
+
+function localizedSpeakerName(name: string, t: Translate): string {
+  const match = /^Speaker (\d+)$/.exec(name);
+  return match ? t("speaker.defaultName", { number: match[1] }) : name;
+}
 
 /**
  * Speaker heading: rename / change / replace / remove, plus a grip to drag
@@ -50,6 +57,7 @@ export default function SpeakerLabel({
   /** False for the first turn — nothing to merge a boundary against. */
   canMove: boolean;
 }) {
+  const { t } = useI18n();
   const speakers = useEditorStore((s) => s.speakers);
   const changeTurnSpeaker = useEditorStore((s) => s.changeTurnSpeaker);
   const renameSpeaker = useEditorStore((s) => s.renameSpeaker);
@@ -60,6 +68,7 @@ export default function SpeakerLabel({
   const moveSpeakerLabel = useEditorStore((s) => s.moveSpeakerLabel);
 
   const label = speakerLabel(speakers, speakerId);
+  const displayLabel = localizedSpeakerName(label, t);
   const color = speakerColor(speakerId);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -209,18 +218,18 @@ export default function SpeakerLabel({
 
   const title =
     mode === "rename"
-      ? "Rename speaker"
+      ? t("speaker.rename")
       : mode === "replace"
-        ? "Replace in project with…"
-        : "Change speaker";
+        ? t("speaker.replace")
+        : t("speaker.change");
 
   return (
     <div className="mb-1.5 flex items-center gap-0.5">
       {canMove && (
         <button
           type="button"
-          title="Drag to move where this speaker starts"
-          aria-label="Move speaker label"
+          title={t("speaker.moveStart")}
+          aria-label={t("speaker.moveLabel")}
           onPointerDown={onGripPointerDown}
           className="flex h-6 w-5 cursor-grab items-center justify-center rounded text-zinc-300 transition hover:bg-zinc-100 hover:text-zinc-500 active:cursor-grabbing dark:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
         >
@@ -240,7 +249,7 @@ export default function SpeakerLabel({
               aria-expanded={pickerOpen}
               aria-controls={panelId}
             >
-              {label}
+              {displayLabel}
               <ChevronDown
                 size={12}
                 className="opacity-50 transition group-hover:opacity-80"
@@ -270,10 +279,10 @@ export default function SpeakerLabel({
                 }}
                 placeholder={
                   mode === "rename"
-                    ? "New name"
+                    ? t("speaker.newName")
                     : mode === "replace"
-                      ? "Find a speaker…"
-                      : "Search or create…"
+                      ? t("speaker.find")
+                      : t("speaker.search")
                 }
                 className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[13px] text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-500"
               />
@@ -288,8 +297,10 @@ export default function SpeakerLabel({
                 >
                   <UserRoundPen size={13} className="shrink-0 text-zinc-400" />
                   <span>
-                    Rename <span className="font-medium">{label}</span> to{" "}
-                    <span className="font-medium">{trimmedQuery}</span>
+                    {t("speaker.renameTo", {
+                      current: displayLabel,
+                      next: trimmedQuery,
+                    })}
                   </span>
                 </button>
               )}
@@ -301,13 +312,13 @@ export default function SpeakerLabel({
                 >
                   <Plus size={13} className="shrink-0 text-zinc-400" />
                   <span>
-                    Create <span className="font-medium">“{trimmedQuery}”</span>
+                    {t("speaker.create", { name: trimmedQuery })}
                   </span>
                 </button>
               )}
               {filtered.length === 0 && !canCreate && !canRenameTo && (
                 <p className="px-2.5 py-2 text-[12px] text-zinc-400">
-                  No matching speakers
+                  {t("speaker.noMatches")}
                 </p>
               )}
               {filtered.map((s) => (
@@ -329,8 +340,8 @@ export default function SpeakerLabel({
           <PopoverTrigger>
             <button
               type="button"
-              title="Speaker options"
-              aria-label="Speaker options"
+              title={t("speaker.options")}
+              aria-label={t("speaker.options")}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((v) => !v)}
@@ -341,23 +352,23 @@ export default function SpeakerLabel({
           </PopoverTrigger>
           <PopoverContent
             role="menu"
-            aria-label="Speaker options"
+            aria-label={t("speaker.options")}
             className="z-40 w-56 overflow-hidden py-1"
           >
             <MenuItem
               icon={UserRoundPen}
-              label="Rename"
+              label={t("speaker.renameAction")}
               onClick={() => openPicker("rename")}
             />
             <MenuItem
               icon={Replace}
-              label="Replace in project with…"
+              label={t("speaker.replace")}
               disabled={speakers.length < 2}
               onClick={() => openPicker("replace")}
             />
             <MenuItem
               icon={Trash2}
-              label="Remove from project"
+              label={t("speaker.removeProject")}
               disabled={speakers.length < 2}
               danger
               onClick={() => {
@@ -374,6 +385,7 @@ export default function SpeakerLabel({
 
 /** Toolbar button that opens the selection speaker picker. */
 export function SelectionSpeakerButton({ onClick }: { onClick: () => void }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -382,7 +394,7 @@ export function SelectionSpeakerButton({ onClick }: { onClick: () => void }) {
       className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
     >
       <UserRoundPen size={13} />
-      Speaker
+      {t("speaker.button")}
     </button>
   );
 }
@@ -397,6 +409,7 @@ export function SelectionSpeakerPopover({
   containerRef: RefObject<HTMLElement | null>;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const speakers = useEditorStore((s) => s.speakers);
   const words = useEditorStore((s) => s.words);
   const changeTurnSpeaker = useEditorStore((s) => s.changeTurnSpeaker);
@@ -467,7 +480,7 @@ export function SelectionSpeakerPopover({
         className="z-40 w-60 max-w-[calc(100vw-16px)] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl shadow-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-800 dark:shadow-black/40"
         style={floatingStyles}
         role="dialog"
-        aria-label="Change speaker"
+        aria-label={t("speaker.change")}
       >
         <div className="border-b border-zinc-100 px-2.5 py-2 dark:border-zinc-700">
           <input
@@ -480,7 +493,7 @@ export function SelectionSpeakerPopover({
               if (exact) apply(exact.id);
               else if (canCreate) apply("new", trimmedQuery);
             }}
-            placeholder="Search or create…"
+            placeholder={t("speaker.search")}
             className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-[13px] text-zinc-800 outline-none focus:border-zinc-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:bg-zinc-900 dark:focus:border-zinc-400"
           />
         </div>
@@ -493,7 +506,7 @@ export function SelectionSpeakerPopover({
             >
               <Plus size={13} className="shrink-0 text-zinc-400" />
               <span>
-                Create <span className="font-medium">“{trimmedQuery}”</span>
+                {t("speaker.create", { name: trimmedQuery })}
               </span>
             </button>
           )}
@@ -522,6 +535,7 @@ function SpeakerOption({
   disabled?: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -533,7 +547,7 @@ function SpeakerOption({
         className="h-2 w-2 shrink-0 rounded-full"
         style={{ backgroundColor: speakerColor(speaker.id) }}
       />
-      <span className="flex-1 truncate font-medium">{speaker.name}</span>
+      <span className="flex-1 truncate font-medium">{localizedSpeakerName(speaker.name, t)}</span>
       {active && <Check size={13} className="shrink-0 text-zinc-400" />}
     </button>
   );

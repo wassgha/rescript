@@ -5,6 +5,8 @@ import { isElectron } from "@/lib/platform";
 import { deleteProject, listProjects } from "@/lib/projects";
 import { useEditorStore } from "@/lib/store";
 import type { MenuCommand } from "@/types/rescript-desktop";
+import { useI18n } from "@/components/I18nProvider";
+import { localizeRuntimeMessage } from "@/lib/i18n";
 
 /**
  * Desktop-only bridge for the native File menu.
@@ -23,6 +25,7 @@ import type { MenuCommand } from "@/types/rescript-desktop";
  *   window from scratch, and it lands long before isolation settles.
  */
 export function useDesktopMenu(openFilePicker: () => void, ready: boolean): void {
+  const { t } = useI18n();
   const projectId = useEditorStore((s) => s.projectId);
   const status = useEditorStore((s) => s.status);
 
@@ -50,7 +53,7 @@ export function useDesktopMenu(openFilePicker: () => void, ready: boolean): void
   }, [syncRecents, projectId, status]);
 
   const clearRecents = useCallback(async () => {
-    if (!confirm("Remove all recent projects? Their saved edits are deleted.")) return;
+    if (!confirm(t("confirm.clearRecent"))) return;
     try {
       const projects = await listProjects();
       const active = useEditorStore.getState().projectId;
@@ -60,11 +63,11 @@ export function useDesktopMenu(openFilePicker: () => void, ready: boolean): void
       }
     } catch (err) {
       console.error(err);
-      alert("Could not clear recent projects.");
+      alert(t("error.clearRecent"));
     } finally {
       await syncRecents();
     }
-  }, [syncRecents]);
+  }, [syncRecents, t]);
 
   const closeProject = useCallback(async () => {
     // The window stays; only the project goes. Flush the debounced autosave
@@ -98,7 +101,11 @@ export function useDesktopMenu(openFilePicker: () => void, ready: boolean): void
             .openProject(command.id)
             .catch(async (err) => {
               console.error(err);
-              alert(err instanceof Error ? err.message : "Could not open that project.");
+              alert(
+                err instanceof Error
+                  ? localizeRuntimeMessage(err.message, t)
+                  : t("error.openProject")
+              );
               await syncRecents();
             });
           return;
@@ -109,7 +116,7 @@ export function useDesktopMenu(openFilePicker: () => void, ready: boolean): void
           void closeProject();
       }
     },
-    [clearRecents, closeProject, syncRecents]
+    [clearRecents, closeProject, syncRecents, t]
   );
 
   // Opening a project can't run before the page is cross-origin isolated; hold

@@ -64,6 +64,7 @@ export const metadata: Metadata = {
 
 /** Apply stored appearance before paint to avoid a light→dark flash. */
 const appearanceBootScript = `(function(){try{if(localStorage.getItem("rescript.appearance")==="dark")document.documentElement.classList.add("dark")}catch(e){}})();`;
+const localeBootScript = `(function(){try{var p=localStorage.getItem("rescript.ui-locale")||"system";var l=p;if(p==="system"){var a=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language];l="en";for(var i=0;i<a.length;i++){var v=(a[i]||"").toLowerCase();if(v==="zh"||v.indexOf("zh-")===0){l="zh-CN";break}if(v==="en"||v.indexOf("en-")===0){l="en";break}}}document.documentElement.lang=l==="zh-CN"?"zh-CN":"en"}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -81,6 +82,11 @@ export default function RootLayout({
           id="appearance-boot"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{ __html: appearanceBootScript }}
+        />
+        <Script
+          id="locale-boot"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: localeBootScript }}
         />
       </head>
       <body className="min-h-full">

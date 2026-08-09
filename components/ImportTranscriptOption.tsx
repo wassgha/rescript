@@ -5,7 +5,6 @@ import { FileText, Loader2 } from "lucide-react";
 import {
   isTranscriptFile,
   parseTranscriptFile,
-  TRANSCRIPT_FILE_ERROR,
   TRANSCRIPT_ACCEPT,
 } from "@/lib/parseTranscript";
 import { isModelId, type ModelId } from "@/lib/models";
@@ -16,6 +15,8 @@ import {
   useOptionTrigger,
   type ModelOptionContextValue,
 } from "./ModelSelector";
+import { useI18n } from "./I18nProvider";
+import { localizeRuntimeMessage } from "@/lib/i18n";
 
 /**
  * ModelSelector option that opens a caption file picker and surfaces parse
@@ -28,6 +29,7 @@ import {
  * menu the user just reopened.
  */
 export default function ImportTranscriptOption() {
+  const { t } = useI18n();
   const pendingTranscript = useEditorStore((s) => s.pendingTranscript);
   const setPendingTranscript = useEditorStore((s) => s.setPendingTranscript);
   const setSource = useEditorStore((s) => s.setSource);
@@ -94,12 +96,12 @@ export default function ImportTranscriptOption() {
   }, [picking, finishCancel]);
 
   const triggerLabel = reading
-    ? "Import…"
+    ? t("import.importing")
     : error
-      ? "Import failed"
+      ? t("import.failed")
       : pendingTranscript
         ? pendingTranscript.name
-        : "Import transcript";
+        : t("model.importTranscript");
 
   // Keep the custom trigger registered whenever import owns (or is about to
   // own) the closed button — otherwise ModelSelector falls back to the raw id
@@ -129,7 +131,7 @@ export default function ImportTranscriptOption() {
             }
             if (!isTranscriptFile(file)) {
               setPicking(false);
-              setError(TRANSCRIPT_FILE_ERROR);
+              setError(t("transcript.invalidFile"));
               setPendingTranscript(null);
               setSource("import");
               menu?.keepMenuOpen();
@@ -155,8 +157,8 @@ export default function ImportTranscriptOption() {
               setPendingTranscript(null);
               setError(
                 err instanceof Error
-                  ? err.message
-                  : "Could not read that transcript."
+                  ? localizeRuntimeMessage(err.message, t)
+                  : t("error.readTranscript")
               );
               setSource("import");
               menu?.keepMenuOpen();
@@ -168,7 +170,7 @@ export default function ImportTranscriptOption() {
       />
       <ModelOption
         id="import"
-        label="Import transcript"
+        label={t("model.importTranscript")}
         meta="SRT / VTT / JSON"
         icon={FileText}
         autoTrigger={false}
@@ -240,22 +242,23 @@ function ImportStatus({
   picking: boolean;
 }) {
   const { selected } = useModelOption();
+  const { t } = useI18n();
   if (reading) {
     return (
       <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-        Reading file…
+        {t("import.readingFile")}
       </p>
     );
   }
   if (error) {
     return (
-      <p className="mt-0.5 text-[11px] text-red-600 dark:text-red-400">{error}</p>
+      <p className="mt-0.5 text-[11px] text-red-600 dark:text-red-400">{localizeRuntimeMessage(error, t)}</p>
     );
   }
   if (picking && !selected) {
     return (
       <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-        Choose a file…
+        {t("import.chooseFileShort")}
       </p>
     );
   }

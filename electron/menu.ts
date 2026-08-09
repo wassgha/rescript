@@ -1,4 +1,5 @@
 import { app, Menu, type MenuItemConstructorOptions } from "electron";
+import { desktopText as t } from "./locale";
 
 const isMac = process.platform === "darwin";
 
@@ -34,15 +35,15 @@ function send(command: MenuCommand): void {
 function fileMenu(): MenuItemConstructorOptions {
   const [last] = recents;
   return {
-    label: "File",
+    label: t("file"),
     submenu: [
       {
-        label: "Open Project…",
+        label: t("openProject"),
         accelerator: "CmdOrCtrl+O",
         click: () => send({ type: "open-file" }),
       },
       {
-        label: "Reopen Last Project",
+        label: t("reopenLast"),
         accelerator: "Shift+CmdOrCtrl+O",
         enabled: last !== undefined,
         click: () => {
@@ -50,10 +51,10 @@ function fileMenu(): MenuItemConstructorOptions {
         },
       },
       {
-        label: "Recent Projects",
+        label: t("recentProjects"),
         submenu:
           recents.length === 0
-            ? [{ label: "No Recent Projects", enabled: false }]
+            ? [{ label: t("noRecent"), enabled: false }]
             : [
                 ...recents.slice(0, MAX_RECENT_ITEMS).map((p) => ({
                   label: p.name,
@@ -61,13 +62,15 @@ function fileMenu(): MenuItemConstructorOptions {
                 })),
                 { type: "separator" as const },
                 {
-                  label: "Clear Recent Projects",
+                  label: t("clearRecent"),
                   click: () => send({ type: "clear-recents" }),
                 },
               ],
       },
       { type: "separator" },
-      isMac ? { role: "close" } : { role: "quit" },
+      isMac
+        ? { role: "close", label: t("close") }
+        : { role: "quit", label: t("quit") },
     ],
   };
 }
@@ -81,69 +84,69 @@ function template(): MenuItemConstructorOptions[] {
           {
             label: app.name,
             submenu: [
-              { role: "about" },
+              { role: "about", label: t("about") },
               { type: "separator" },
-              { role: "services" },
+              { role: "services", label: t("services") },
               { type: "separator" },
-              { role: "hide" },
-              { role: "hideOthers" },
-              { role: "unhide" },
+              { role: "hide", label: t("hide") },
+              { role: "hideOthers", label: t("hideOthers") },
+              { role: "unhide", label: t("unhide") },
               { type: "separator" },
-              { role: "quit" },
+              { role: "quit", label: t("quit") },
             ],
           },
         ] satisfies MenuItemConstructorOptions[])
       : []),
     fileMenu(),
     {
-      label: "Edit",
+      label: t("edit"),
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
+        { role: "undo", label: t("undo") },
+        { role: "redo", label: t("redo") },
         { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
+        { role: "cut", label: t("cut") },
+        { role: "copy", label: t("copy") },
+        { role: "paste", label: t("paste") },
         ...(isMac
           ? ([
-              { role: "pasteAndMatchStyle" },
-              { role: "delete" },
-              { role: "selectAll" },
+              { role: "pasteAndMatchStyle", label: t("pasteMatch") },
+              { role: "delete", label: t("delete") },
+              { role: "selectAll", label: t("selectAll") },
             ] satisfies MenuItemConstructorOptions[])
           : ([
-              { role: "delete" },
+              { role: "delete", label: t("delete") },
               { type: "separator" },
-              { role: "selectAll" },
+              { role: "selectAll", label: t("selectAll") },
             ] satisfies MenuItemConstructorOptions[])),
       ],
     },
     {
-      label: "View",
+      label: t("view"),
       submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
+        { role: "reload", label: t("reload") },
+        { role: "forceReload", label: t("forceReload") },
+        { role: "toggleDevTools", label: t("devTools") },
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
+        { role: "resetZoom", label: t("resetZoom") },
+        { role: "zoomIn", label: t("zoomIn") },
+        { role: "zoomOut", label: t("zoomOut") },
         { type: "separator" },
-        { role: "togglefullscreen" },
+        { role: "togglefullscreen", label: t("fullscreen") },
       ],
     },
     {
-      label: "Window",
+      label: t("window"),
       submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
+        { role: "minimize", label: t("minimize") },
+        { role: "zoom", label: t("zoom") },
         ...(isMac
           ? ([
               { type: "separator" },
-              { role: "front" },
+              { role: "front", label: t("front") },
               { type: "separator" },
-              { role: "window" },
+              { role: "window", label: t("window") },
             ] satisfies MenuItemConstructorOptions[])
-          : ([{ role: "close" }] satisfies MenuItemConstructorOptions[])),
+          : ([{ role: "close", label: t("close") }] satisfies MenuItemConstructorOptions[])),
       ],
     },
   ];

@@ -27,13 +27,17 @@ import { useCrossOriginIsolated } from "@/hooks/useCrossOriginIsolated";
 import { detectMediaKind, MEDIA_ACCEPT } from "@/lib/media";
 import { formatTime } from "@/lib/edits";
 import {
-  formatRelativeTime,
   listProjects,
   type ProjectMeta,
 } from "@/lib/projects";
 import { isElectron } from "@/lib/platform";
 import { useEditorStore } from "@/lib/store";
 import type { SpeakerInfo, Word } from "@/lib/types";
+import { useI18n } from "./I18nProvider";
+import {
+  formatRelativeTime,
+  localizeRuntimeMessage,
+} from "@/lib/i18n";
 
 // The three media cards that stand in for the upload icon. Each carries its
 // resting transform plus the fanned-out one, applied either on hover (via the
@@ -97,11 +101,12 @@ function RecentProjects({
   onOpen: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const { locale, t } = useI18n();
   if (projects.length === 0) return null;
   return (
     <div className="mt-6">
       <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
-        Recent
+        {t("upload.recentProjects")}
       </p>
       <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white/80 dark:divide-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/80">
         {projects.map((p) => {
@@ -122,9 +127,9 @@ function RecentProjects({
                       {p.name}
                     </span>
                     <span className="mt-0.5 block text-[11px] text-zinc-400 dark:text-zinc-500">
-                      {formatRelativeTime(p.updatedAt)}
+                      {formatRelativeTime(locale, p.updatedAt)}
                       {p.duration > 0 ? ` · ${formatTime(p.duration)}` : ""}
-                      {` · ${p.mediaKind}`}
+                      {` · ${p.mediaKind === "audio" ? t("export.audio") : t("export.video")}`}
                     </span>
                   </span>
                   {opening && (
@@ -133,7 +138,7 @@ function RecentProjects({
                 </button>
                 <button
                   type="button"
-                  title="Remove from recent"
+                  title={t("upload.removeRecent")}
                   disabled={busyId !== null}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -173,6 +178,7 @@ export default function UploadScreen({
   const pendingTranscript = useEditorStore((s) => s.pendingTranscript);
   const openProject = useEditorStore((s) => s.openProject);
   const removeProject = useEditorStore((s) => s.removeProject);
+  const { t } = useI18n();
 
   const refreshProjects = useCallback(async () => {
     try {
@@ -205,13 +211,13 @@ export default function UploadScreen({
       const file = files?.[0];
       if (!file) return;
       if (!detectMediaKind(file)) {
-        alert("Please choose a video or audio file.");
+        alert(t("editor.chooseMedia"));
         return;
       }
       const { source, pendingTranscript: pending } = useEditorStore.getState();
       if (source === "import") {
         if (!pending) {
-          alert("Choose a transcript file from the source menu first.");
+          alert(t("editor.chooseTranscript"));
           return;
         }
         onFile(file, { words: pending.words, speakers: pending.speakers });
@@ -219,7 +225,7 @@ export default function UploadScreen({
       }
       onFile(file);
     },
-    [onFile, ready]
+    [onFile, ready, t]
   );
 
   const handleOpen = useCallback(
@@ -230,13 +236,17 @@ export default function UploadScreen({
         await openProject(id);
       } catch (err) {
         console.error(err);
-        alert(err instanceof Error ? err.message : "Could not open that project.");
+        alert(
+          err instanceof Error
+            ? localizeRuntimeMessage(err.message, t)
+            : t("error.openProject")
+        );
         await refreshProjects();
       } finally {
         setBusyId(null);
       }
     },
-    [openProject, ready, refreshProjects]
+    [openProject, ready, refreshProjects, t]
   );
 
   const handleRemove = useCallback(
@@ -246,10 +256,10 @@ export default function UploadScreen({
         await refreshProjects();
       } catch (err) {
         console.error(err);
-        alert("Could not remove that project.");
+        alert(t("error.removeProject"));
       }
     },
-    [removeProject, refreshProjects]
+    [removeProject, refreshProjects, t]
   );
 
   return (
@@ -278,7 +288,7 @@ export default function UploadScreen({
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <SettingsMenu />
                 <div className="h-5 w-px bg-zinc-200 dark:bg-zinc-700 mr-1" />
-                <ModelSelector groupLabel="Transcript source">
+                <ModelSelector groupLabel={t("model.transcriptSource")}>
                   {MODEL_ORDER.map((id) => (
                     <ModelOption key={id} id={id} />
                   ))}
@@ -345,32 +355,34 @@ export default function UploadScreen({
             {isolation === "unavailable" ? (
               <>
                 <p className="text-[15px] font-medium text-zinc-800 dark:text-zinc-100">
-                  This browser can&apos;t run the editor
+                  {t("upload.unsupported")}
                 </p>
                 <p className="mt-1 max-w-sm text-[13px] leading-relaxed text-zinc-400 dark:text-zinc-500">
-                  Editing needs SharedArrayBuffer, which requires a cross-origin-isolated page.
-                  Try a recent Chrome, Edge, Safari or Firefox over HTTPS.
+                  {t("upload.unsupportedHelp")}
                 </p>
               </>
             ) : ready ? (
               <>
                 <p className="text-[15px] font-medium text-zinc-800 dark:text-zinc-100">
-                  Drop a video or audio file here, or{" "}
-                  <span className="text-neutral-600 dark:text-neutral-300">browse</span>
+                  {t("upload.dropOrBrowse", {
+                    browse: t("upload.browse"),
+                  })}
                 </p>
                 <p className="mt-1 text-[13px] text-zinc-400 dark:text-zinc-500">
                   {source === "import"
                     ? pendingTranscript
-                      ? `Will use ${pendingTranscript.name} · MP4, WebM, MOV, MP3, WAV, …`
-                      : "Pick a transcript in the menu above, then drop your media"
-                    : "MP4, WebM, MOV, MP3, WAV, M4A, …"}
+                      ? t("upload.willUseTranscript", {
+                          name: pendingTranscript.name,
+                        })
+                      : t("upload.chooseTranscriptFirst")
+                    : t("upload.mediaFormats")}
                 </p>
               </>
             ) : (
               <>
-                <p className="text-[15px] font-medium text-zinc-800 dark:text-zinc-100">Getting things ready</p>
+                <p className="text-[15px] font-medium text-zinc-800 dark:text-zinc-100">{t("upload.gettingReady")}</p>
                 <p className="mt-1 text-[13px] text-zinc-400 dark:text-zinc-500">
-                  Setting up the media engine, this only happens once.
+                  {t("upload.gettingReadyHelp")}
                 </p>
               </>
             )}
@@ -399,9 +411,9 @@ export default function UploadScreen({
 
           {!isElectron && <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
             {[
-              { icon: Type, title: "Transcribe", text: "Whisper locally, or import SRT / VTT." },
-              { icon: Scissors, title: "Edit", text: "Select words and hit delete to edit." },
-              { icon: Clapperboard, title: "Export", text: "Render the final cut to MP4 or M4A." },
+              { icon: Type, title: t("upload.transcribeTitle"), text: t("upload.transcribeText") },
+              { icon: Scissors, title: t("upload.editTitle"), text: t("upload.editText") },
+              { icon: Clapperboard, title: t("upload.exportTitle"), text: t("upload.exportText") },
             ].map(({ icon: Icon, title, text }) => (
               <div key={title} className="rounded-xl border border-zinc-200 bg-white/70 p-4 dark:border-zinc-700 dark:bg-zinc-900/70">
                 <Icon size={16} className="mb-2 text-neutral-500 dark:text-neutral-400" />

@@ -22,7 +22,6 @@ import TranscriptToolsMenu from "./TranscriptToolsMenu";
 import {
   isTranscriptFile,
   parseTranscriptFile,
-  TRANSCRIPT_FILE_ERROR,
   TRANSCRIPT_ACCEPT,
 } from "@/lib/parseTranscript";
 import type { Word } from "@/lib/types";
@@ -43,6 +42,8 @@ import { useWordAnchorFloating } from "@/hooks/useWordAnchorFloating";
 import { useCutRanges } from "@/hooks/useCutRanges";
 import { findActiveWordId, groupWordsBySpeaker } from "@/lib/transcript";
 import { isTypingTarget } from "@/lib/keyboard";
+import { useI18n } from "./I18nProvider";
+import { localizeRuntimeMessage } from "@/lib/i18n";
 
 const WordSpan = memo(function WordSpan({
   word,
@@ -56,6 +57,7 @@ const WordSpan = memo(function WordSpan({
   active: boolean;
   onClick: (word: Word, el: HTMLElement) => void;
 }) {
+  const { t } = useI18n();
   const placeholder = isDisfluencyPlaceholder(word.text);
   // The trailing space lives inside the span so that selection and deletion
   // highlights are continuous across words instead of breaking at each gap.
@@ -64,7 +66,7 @@ const WordSpan = memo(function WordSpan({
       data-wid={word.id}
       data-cut={cutOut ? "" : undefined}
       data-placeholder={placeholder ? "" : undefined}
-      title={placeholder ? "Detected hesitation (not transcribed) — cut with Remove filler words" : undefined}
+      title={placeholder ? t("transcript.hesitation") : undefined}
       onClick={(e) => onClick(word, e.currentTarget)}
       className={`py-0.5 cursor-pointer transition-colors duration-75 ${cutOut
         ? "word-deleted bg-red-50 text-red-600 line-through decoration-red-300 dark:bg-red-950/40 dark:text-red-400 dark:decoration-red-800"
@@ -91,11 +93,12 @@ const SplitMarker = memo(function SplitMarker({
   boundaryId: number;
   onJoin: (id: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
-      title="Clip split — click to join these clips"
-      aria-label="Join clips"
+      title={t("transcript.joinSplit")}
+      aria-label={t("transcript.joinClips")}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onJoin(boundaryId)}
       className="group relative mx-0.5 inline-flex h-4 w-2 cursor-pointer select-none items-center justify-center align-middle"
@@ -103,13 +106,14 @@ const SplitMarker = memo(function SplitMarker({
       <span className="h-4 w-0.5 rounded-full bg-zinc-300 transition-colors group-hover:bg-zinc-600 dark:bg-zinc-600 dark:group-hover:bg-zinc-300" />
       <span className="pointer-events-none absolute -top-5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-zinc-100 dark:text-zinc-900">
         <Merge size={9} />
-        Join
+        {t("transcript.joinClips")}
       </span>
     </button>
   );
 });
 
 export default function TranscriptPanel() {
+  const { t } = useI18n();
   const words = useEditorStore((s) => s.words);
   const sceneBoundaries = useEditorStore((s) => s.sceneBoundaries);
   const duration = useEditorStore((s) => s.duration);
@@ -220,12 +224,12 @@ export default function TranscriptPanel() {
       const file = files?.[0];
       if (!file) return;
       if (!isTranscriptFile(file)) {
-        alert(TRANSCRIPT_FILE_ERROR);
+        alert(t("transcript.invalidFile"));
         return;
       }
       if (
         words.length > 0 &&
-        !confirm("Replace the current transcript with this file?")
+        !confirm(t("transcript.replaceConfirm"))
       ) {
         return;
       }
@@ -234,10 +238,14 @@ export default function TranscriptPanel() {
         importWords(imported.words, imported.speakers);
       } catch (err) {
         console.error(err);
-        alert(err instanceof Error ? err.message : "Could not read that transcript.");
+        alert(
+          err instanceof Error
+            ? localizeRuntimeMessage(err.message, t)
+            : t("error.readTranscript")
+        );
       }
     },
-    [words.length, importWords]
+    [words.length, importWords, t]
   );
 
   const cutSelection = useCallback(() => {
@@ -339,23 +347,23 @@ export default function TranscriptPanel() {
           rubber-band overscroll only carries the transcript, not the bar. */}
       <div className="absolute inset-x-0 top-0 z-10 flex h-10 items-center gap-2 border-b border-zinc-100/80 bg-white/75 px-3 backdrop-blur-md sm:px-4 dark:border-zinc-800/80 dark:bg-zinc-900/75">
         <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-          Transcript
+          {t("transcript.header")}
         </span>
         <div className="ml-auto flex items-center gap-2">
           {deletedCount > 0 && (
             <span className="rounded-md bg-red-50 px-2 py-0.5 text-[9px] font-medium text-red-600 line-clamp-1 line-through dark:bg-red-950/40 dark:text-red-400">
-              {deletedCount} word{deletedCount === 1 ? "" : "s"}
+              {t("transcript.wordsDeleted", { count: deletedCount })}
             </span>
           )}
           {status === "ready" && <TranscriptToolsMenu />}
           {(status === "ready" || status === "error" || status === "transcribing") && (
             <>
               <label
-                title="Replace transcript from SRT, VTT, or JSON"
+                title={t("transcript.replace")}
                 className="flex cursor-pointer h-7 items-center gap-1.5 rounded-lg px-2 text-xs text-zinc-500 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
               >
                 <ArrowUpFromLine size={14} />
-                <span className="hidden sm:inline">Import</span>
+                <span className="hidden sm:inline">{t("common.import")}</span>
                 <input
                   ref={importInputRef}
                   type="file"
@@ -373,7 +381,7 @@ export default function TranscriptPanel() {
           )}
           <button
             onClick={toggleShowDeleted}
-            title={showDeleted ? "Hide deleted words" : "Show deleted words"}
+            title={showDeleted ? t("transcript.hideDeleted") : t("transcript.showDeleted")}
             className="flex cursor-pointer h-7 items-center gap-1.5 rounded-lg px-2 text-xs text-zinc-500 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             {showDeleted ? <Eye size={14} /> : <EyeOff size={14} />}
@@ -391,7 +399,7 @@ export default function TranscriptPanel() {
               <div className="w-full bg-zinc-50 p-2 dark:bg-zinc-800/60">
                 <div className="flex items-center gap-2">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-500 border-t-transparent dark:border-neutral-400" />
-                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">{progress.message}</p>
+                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">{localizeRuntimeMessage(progress.message, t)}</p>
                   {progress.value !== null && (
                     <>
                       <div className="ml-auto w-[100px] h-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
@@ -418,13 +426,13 @@ export default function TranscriptPanel() {
 
           {status === "error" && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/30 dark:bg-red-950/30 dark:text-red-900">
-              {error}
+              {localizeRuntimeMessage(error, t)}
             </div>
           )}
 
           {status === "ready" && words.length === 0 && (
               <p className="mt-2 flex items-center gap-1 text-sm font-medium text-zinc-500 dark:text-zinc-500">
-                <VolumeOff size={16} /> No speech detected, make sure this file has audio or import a transcript.
+                <VolumeOff size={16} /> {t("transcript.noSpeech")}
               </p>
           )}
 
@@ -484,7 +492,7 @@ export default function TranscriptPanel() {
                     className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-red-50 hover:text-red-600 dark:text-zinc-200 dark:hover:bg-red-950/50 dark:hover:text-red-400"
                   >
                     <Scissors size={13} />
-                    Cut
+                    {t("transcript.cut")}
                   </button>
                 )}
                 {selection.anyDeleted && (
@@ -493,7 +501,7 @@ export default function TranscriptPanel() {
                     className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-emerald-50 hover:text-emerald-600 dark:text-zinc-200 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-400"
                   >
                     <RotateCcw size={13} />
-                    Restore
+                    {t("common.restore")}
                   </button>
                 )}
                 <button
@@ -501,7 +509,7 @@ export default function TranscriptPanel() {
                   className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
                 >
                   <Pencil size={13} />
-                  Correct
+                  {t("transcript.correct")}
                 </button>
                 <SelectionSpeakerButton onClick={openSpeakerAssign} />
               </div>
@@ -527,7 +535,7 @@ export default function TranscriptPanel() {
                 style={correctStyles}
               >
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">Correct</span>
+                  <span className="text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">{t("transcript.correct")}</span>
                   <button
                     onClick={closeCorrect}
                     className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
@@ -552,7 +560,7 @@ export default function TranscriptPanel() {
                     disabled={correctText.trim().length === 0}
                     className="cursor-pointer flex h-8 items-center rounded-full bg-zinc-900 px-4 text-[13px] font-medium text-white transition hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
-                    Correct
+                    {t("transcript.correct")}
                   </button>
                 </div>
               </div>
@@ -566,13 +574,13 @@ export default function TranscriptPanel() {
         <button
           type="button"
           onClick={resumeFollowPlayhead}
-          title="Scroll with the playhead"
+          title={t("transcript.scrollWithPlayhead")}
           className="absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border border-zinc-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-zinc-700 backdrop-blur-sm transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/95 dark:text-zinc-200 dark:hover:bg-zinc-700"
         >
           {followDirection === "up" && <ArrowUp size={13} />}
           {followDirection === "down" && <ArrowDown size={13} />}
           {followDirection === null && <ChevronLast size={13} />}
-          Follow playhead
+          {t("transcript.follow")}
         </button>
       )}
       <TranscriptScrollIndicator
