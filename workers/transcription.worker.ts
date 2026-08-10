@@ -23,6 +23,8 @@ import {
   AutoModelForCTC,
   AutoTokenizer,
   WhisperTextStreamer,
+  LogitsProcessor,
+  LogitsProcessorList,
   Tensor,
   env,
   type AutomaticSpeechRecognitionPipeline,
@@ -72,6 +74,7 @@ import {
   type CtcVocab,
 } from "@/lib/forcedAlign";
 import type { TranscriptLanguage } from "@/lib/languages";
+import { whisperLanguageOptions } from "@/lib/transcriptionOptions";
 import {
   VAD_FRAME_SIZE,
   VAD_SAMPLE_RATE,
@@ -148,6 +151,75 @@ const SPEECH_PAD_S = 0.4;
 const WHISPER_LEAD_PAD_S = 0.5;
 
 type AsrChunk = { text: string; timestamp: [number, number | null] };
+
+/** Restrict Whisper's first generated token to its language-token vocabulary. */
+class WhisperLanguageTokenProcessor extends LogitsProcessor {
+  private readonly allowed: Set<number>;
+
+  constructor(tokenIds: number[]) {
+    super();
+    this.allowed = new Set(tokenIds);
+  }
+
+  _call(_inputIds: bigint[][], logits: Tensor): Tensor {
+    const values = logits.data as Float32Array;
+    const vocabularySize = logits.dims.at(-1) ?? 0;
+    for (let index = 0; index < values.length; index++) {
+      if (!this.allowed.has(index % vocabularySize)) values[index] = -Infinity;
+    }
+    return logits;
+  }
+}
+
+/**
+ * Transformers.js 4.2 does not yet implement Whisper language detection: when
+ * `language` is omitted it explicitly defaults to English. Run Whisper's
+ * standard first-token probe instead, constrained to every language token in
+ * the checkpoint, then feed the detected code back into source-language
+ * transcription.
+ */
+async function detectWhisperLanguage(
+  transcriber: AutomaticSpeechRecognitionPipeline,
+  audio: Float32Array
+): Promise<string> {
+  const generationConfig = transcriber.model.generation_config as {
+    decoder_start_token_id?: number | null;
+    lang_to_id?: Record<string, number> | null;
+  };
+  const startToken = generationConfig.decoder_start_token_id;
+  const langToId = generationConfig.lang_to_id;
+  if (startToken == null || !langToId) {
+    throw new Error("This Whisper model does not expose language detection tokens.");
+  }
+
+  const tokenToLanguage = new Map<number, string>();
+  for (const [token, id] of Object.entries(langToId)) {
+    const match = /^<\|([a-z]{2,3})\|>$/.exec(token);
+    if (match) tokenToLanguage.set(id, match[1]);
+  }
+  if (tokenToLanguage.size === 0) {
+    throw new Error("This Whisper model has no usable language tokens.");
+  }
+
+  const { input_features } = await transcriber.processor(audio);
+  const languageProcessors = new LogitsProcessorList();
+  languageProcessors.push(new WhisperLanguageTokenProcessor([...tokenToLanguage.keys()]));
+  const generated = (await transcriber.model.generate({
+    inputs: input_features,
+    decoder_input_ids: new Tensor(
+      "int64",
+      BigInt64Array.of(BigInt(startToken)),
+      [1, 1]
+    ),
+    max_new_tokens: 1,
+    do_sample: false,
+    logits_processor: languageProcessors,
+  })) as Tensor;
+  const sequence = generated.tolist()[0] as bigint[];
+  const language = tokenToLanguage.get(Number(sequence.at(-1)));
+  if (!language) throw new Error("Whisper could not detect the source language.");
+  return language;
+}
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) =>
   (self as unknown as Worker).postMessage(msg, transfer);
@@ -953,7 +1025,7 @@ async function refineWordTimestamps(
   speechFrames: boolean[],
   audio: Float32Array,
   duration: number,
-  language: TranscriptLanguage
+  language: TranscriptLanguage | undefined
 ): Promise<Word[]> {
   let out = alignWordsToSpeech(words, speechFrames, {
     duration,
@@ -961,7 +1033,7 @@ async function refineWordTimestamps(
     sampleRate: VAD_SAMPLE_RATE,
   });
 
-  if (alignModelFor(language)) {
+  if (language && alignModelFor(language)) {
     try {
       const measured = await forceAlign(out, audio, duration, language);
       out = expandToAcoustics(measured, speechEnvelope(audio, VAD_SAMPLE_RATE));
@@ -1122,11 +1194,11 @@ async function finishWithDiarization(
 async function runParakeet(
   audio: Float32Array,
   duration: number,
-  transcriptLanguage: TranscriptLanguage
+  transcriptLanguage: TranscriptLanguage | undefined
 ): Promise<Word[]> {
   // Overlap diarizer (+ language-matched aligner) with Parakeet load.
   getDiarizer().catch(() => {});
-  if (alignModelFor(transcriptLanguage)) {
+  if (transcriptLanguage && alignModelFor(transcriptLanguage)) {
     getAligner(transcriptLanguage).catch(() => {});
   }
   const [loaded, vad] = await Promise.all([getParakeet(), getVad()]);
@@ -1208,12 +1280,12 @@ async function runWhisper(
   audio: Float32Array,
   duration: number,
   choice: WhisperModel,
-  transcriptLanguage: TranscriptLanguage
+  transcriptLanguage: TranscriptLanguage | undefined
 ): Promise<Word[]> {
   // Overlap Whisper + Silero downloads; diarizer and language-matched aligner
   // warm in the background so both are cached by the time the transcript lands.
   getDiarizer().catch(() => {});
-  if (alignModelFor(transcriptLanguage)) {
+  if (transcriptLanguage && alignModelFor(transcriptLanguage)) {
     getAligner(transcriptLanguage).catch(() => {});
   }
   const [asr, vad] = await Promise.all([getAsr(choice), getVad()]);
@@ -1227,6 +1299,21 @@ async function runWhisper(
     (n, s) => n + (s.endSample - s.startSample),
     0
   );
+
+  let whisperLanguage: string | undefined = transcriptLanguage;
+  if (!whisperLanguage && speechSegments.length > 0) {
+    post({ type: "progress", message: "Detecting language…", value: null });
+    const probe = speechSegments.reduce((longest, segment) =>
+      segment.endSample - segment.startSample > longest.endSample - longest.startSample
+        ? segment
+        : longest
+    );
+    const probeEnd = Math.min(probe.endSample, probe.startSample + 30 * VAD_SAMPLE_RATE);
+    whisperLanguage = await detectWhisperLanguage(
+      transcriber,
+      audio.slice(probe.startSample, probeEnd)
+    );
+  }
 
   post({ type: "progress", message: "Transcribing…", value: 0 });
 
@@ -1294,7 +1381,7 @@ async function runWhisper(
     // short VAD segments on every model here, whether with Whisper's
     // <|startofprev|> filler prompt or CrisperWhisper's mode tags. See the note
     // above MODELS in lib/models.ts; vad-regression-test.ts guards it.
-    language: transcriptLanguage,
+    ...whisperLanguageOptions(whisperLanguage),
   };
 
   const rawWords: Word[] = [];
@@ -1409,7 +1496,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const { audio, duration, model, language } = event.data;
   try {
     const choice: ModelId = model ?? "base";
-    const transcriptLanguage: TranscriptLanguage = language ?? "en";
+    const transcriptLanguage: TranscriptLanguage | undefined = language;
 
     let words: Word[];
     if (isParakeetModel(choice)) {

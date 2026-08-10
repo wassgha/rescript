@@ -1,4 +1,5 @@
 export type TranscriptLanguage = "en" | "es" | "fr" | "de" | "zh";
+export type TranscriptLanguagePreference = "auto" | TranscriptLanguage;
 
 export interface TranscriptLanguageInfo {
   label: string;
@@ -11,7 +12,14 @@ export interface TranscriptLanguageInfo {
 
 const LANGUAGE_STORAGE_KEY = "rescript.transcript-language";
 
-export const DEFAULT_TRANSCRIPT_LANGUAGE: TranscriptLanguage = "en";
+export const DEFAULT_TRANSCRIPT_LANGUAGE: TranscriptLanguagePreference = "auto";
+
+export const AUTO_TRANSCRIPT_LANGUAGE_INFO = {
+  label: "Auto-detect",
+  nativeLabel: "Auto-detect",
+  flag: "🌐",
+  code: "AUTO",
+} satisfies TranscriptLanguageInfo;
 
 export const TRANSCRIPT_LANGUAGES: Record<
   TranscriptLanguage,
@@ -57,6 +65,11 @@ export const TRANSCRIPT_LANGUAGE_ORDER: TranscriptLanguage[] = [
   "zh",
 ];
 
+export const TRANSCRIPT_LANGUAGE_PREFERENCE_ORDER: TranscriptLanguagePreference[] = [
+  "auto",
+  ...TRANSCRIPT_LANGUAGE_ORDER,
+];
+
 export function isTranscriptLanguage(
   value: unknown
 ): value is TranscriptLanguage {
@@ -69,12 +82,18 @@ export function isTranscriptLanguage(
   );
 }
 
+export function isTranscriptLanguagePreference(
+  value: unknown
+): value is TranscriptLanguagePreference {
+  return value === "auto" || isTranscriptLanguage(value);
+}
+
 /** Read the last-selected transcript language from localStorage. */
-export function loadTranscriptLanguagePreference(): TranscriptLanguage {
+export function loadTranscriptLanguagePreference(): TranscriptLanguagePreference {
   if (typeof window === "undefined") return DEFAULT_TRANSCRIPT_LANGUAGE;
   try {
     const raw = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (isTranscriptLanguage(raw)) return raw;
+    if (isTranscriptLanguagePreference(raw)) return raw;
   } catch {
     // private mode / disabled storage
   }
@@ -82,7 +101,9 @@ export function loadTranscriptLanguagePreference(): TranscriptLanguage {
 }
 
 /** Persist the selected transcript language for the next visit. */
-export function saveTranscriptLanguagePreference(language: TranscriptLanguage) {
+export function saveTranscriptLanguagePreference(
+  language: TranscriptLanguagePreference
+) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);

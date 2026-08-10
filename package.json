@@ -19,6 +19,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:transcription": "tsx tests/languages-test.ts && tsx tests/transcription-options-test.ts",
     "postinstall": "patch-package && node scripts/copy-assets.mjs",
     "build:electron": "node scripts/build-electron.mjs",
     "typecheck:electron": "tsc -p electron/tsconfig.json --noEmit",

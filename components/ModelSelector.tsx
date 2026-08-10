@@ -26,9 +26,10 @@ import {
   SignalBarsMedium,
 } from "./SignalBars";
 import {
-  TRANSCRIPT_LANGUAGE_ORDER,
+  AUTO_TRANSCRIPT_LANGUAGE_INFO,
+  TRANSCRIPT_LANGUAGE_PREFERENCE_ORDER,
   TRANSCRIPT_LANGUAGES,
-  type TranscriptLanguage,
+  type TranscriptLanguagePreference,
 } from "@/lib/languages";
 import {
   MODEL_ORDER,
@@ -207,11 +208,13 @@ export default function ModelSelector({
       : source === "import"
         ? "Import transcript"
         : String(source));
-  const languageInfo = TRANSCRIPT_LANGUAGES[transcriptLanguage];
+  const languageInfo =
+    transcriptLanguage === "auto"
+      ? AUTO_TRANSCRIPT_LANGUAGE_INFO
+      : TRANSCRIPT_LANGUAGES[transcriptLanguage];
   const showLanguageInTrigger =
     isWhisperModel(source) &&
-    !activeTrigger?.busy &&
-    transcriptLanguage !== "en";
+    !activeTrigger?.busy;
 
   // Always mount options (hidden when closed) so custom triggers stay registered.
   const options = children ?? (
@@ -416,9 +419,12 @@ export function LanguageSection() {
   const selector = useSelectorCtx();
   const [submenuOpen, setSubmenuOpen] = useState(false);
   const submenuId = useId();
-  const active = TRANSCRIPT_LANGUAGES[language];
+  const active =
+    language === "auto"
+      ? AUTO_TRANSCRIPT_LANGUAGE_INFO
+      : TRANSCRIPT_LANGUAGES[language];
 
-  const select = (next: TranscriptLanguage) => {
+  const select = (next: TranscriptLanguagePreference) => {
     setLanguage(next);
     setSubmenuOpen(false);
     selector.closeMenu();
@@ -427,7 +433,7 @@ export function LanguageSection() {
   return (
     <div>
       <p className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
-        Language
+        Source language
       </p>
       {/* No portal: stay in the parent panel DOM so outside-click on the model
           menu still treats this flyout as inside the floating tree. */}
@@ -472,11 +478,14 @@ export function LanguageSection() {
           <PopoverContent
             id={submenuId}
             role="menu"
-            aria-label="Transcript language"
+            aria-label="Source language"
             className="z-50 w-44 overflow-hidden p-1"
           >
-            {TRANSCRIPT_LANGUAGE_ORDER.map((id) => {
-              const option = TRANSCRIPT_LANGUAGES[id];
+            {TRANSCRIPT_LANGUAGE_PREFERENCE_ORDER.map((id) => {
+              const option =
+                id === "auto"
+                  ? AUTO_TRANSCRIPT_LANGUAGE_INFO
+                  : TRANSCRIPT_LANGUAGES[id];
               const selected = id === language;
               return (
                 <button
@@ -508,6 +517,11 @@ export function LanguageSection() {
           </PopoverContent>
         </div>
       </Popover>
+      {selector.value === "parakeet" && (
+        <p className="px-2.5 pb-1 pt-1 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
+          Parakeet detects the spoken language automatically; this setting is used only for word alignment.
+        </p>
+      )}
     </div>
   );
 }
