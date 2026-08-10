@@ -7,10 +7,10 @@
  */
 
 import { isTranscriptSource, type TranscriptSource } from "./source";
-import type { TranscriptLanguage } from "./languages";
+import type { TranscriptLanguagePreference } from "./languages";
 import {
   DEFAULT_TRANSCRIPT_LANGUAGE,
-  isTranscriptLanguage,
+  isTranscriptLanguagePreference,
 } from "./languages";
 import type { MediaKind } from "./media";
 import type { ManualCut, SceneBoundary, SpeakerInfo, Word } from "./types";
@@ -26,7 +26,7 @@ export interface ProjectMeta {
   mediaKind: MediaKind;
   duration: number;
   source: TranscriptSource;
-  transcriptLanguage: TranscriptLanguage;
+  transcriptLanguage: TranscriptLanguagePreference;
   updatedAt: number;
   createdAt: number;
 }
@@ -137,7 +137,7 @@ export async function listProjects(): Promise<ProjectMeta[]> {
       mediaKind: r.mediaKind,
       duration: r.duration,
       source: projectSource(r),
-      transcriptLanguage: isTranscriptLanguage(r.transcriptLanguage)
+      transcriptLanguage: isTranscriptLanguagePreference(r.transcriptLanguage)
         ? r.transcriptLanguage
         : DEFAULT_TRANSCRIPT_LANGUAGE,
       updatedAt: r.updatedAt,
@@ -181,7 +181,7 @@ export async function putProject(input: ProjectWrite): Promise<string> {
     mediaKind: input.mediaKind,
     duration: input.duration,
     source: isTranscriptSource(input.source) ? input.source : "base",
-    transcriptLanguage: isTranscriptLanguage(input.transcriptLanguage)
+    transcriptLanguage: isTranscriptLanguagePreference(input.transcriptLanguage)
       ? input.transcriptLanguage
       : DEFAULT_TRANSCRIPT_LANGUAGE,
     words: input.words,

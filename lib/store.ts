@@ -31,10 +31,10 @@ import { isTranscriptSource, type TranscriptSource } from "./source";
 import { trackEvent } from "./telemetry";
 import {
   DEFAULT_TRANSCRIPT_LANGUAGE,
-  isTranscriptLanguage,
+  isTranscriptLanguagePreference,
   loadTranscriptLanguagePreference,
   saveTranscriptLanguagePreference,
-  type TranscriptLanguage,
+  type TranscriptLanguagePreference,
 } from "./languages";
 import { detectMediaKind, type MediaKind } from "./media";
 import { buildWaveformPeaks, type WaveformPeaks } from "./waveform";
@@ -80,7 +80,7 @@ interface EditorState {
   /** Transcript source selected on the upload screen (speech model or import). */
   source: TranscriptSource;
   /** Language hint sent to Whisper when transcribing (Parakeet auto-detects). */
-  transcriptLanguage: TranscriptLanguage;
+  transcriptLanguage: TranscriptLanguagePreference;
   /**
    * Caption file parsed on the upload screen when source is "import".
    * Cleared when switching back to a speech model or after media loads.
@@ -150,7 +150,7 @@ interface EditorState {
   /** Delete a saved project; if it is the active one, resets to the home screen. */
   removeProject: (id: string) => Promise<void>;
   setSource: (s: TranscriptSource) => void;
-  setTranscriptLanguage: (language: TranscriptLanguage) => void;
+  setTranscriptLanguage: (language: TranscriptLanguagePreference) => void;
   setPendingTranscript: (t: PendingTranscript | null) => void;
   setDuration: (d: number) => void;
   /**
@@ -428,7 +428,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       mediaKind: record.mediaKind,
       duration: record.duration,
       source: isTranscriptSource(record.source) ? record.source : "base",
-      transcriptLanguage: isTranscriptLanguage(record.transcriptLanguage)
+      transcriptLanguage: isTranscriptLanguagePreference(record.transcriptLanguage)
         ? record.transcriptLanguage
         : DEFAULT_TRANSCRIPT_LANGUAGE,
       projectId: record.id,

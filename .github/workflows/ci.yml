@@ -38,6 +38,9 @@ jobs:
       - name: Typecheck (electron)
         run: npm run typecheck:electron
 
+      - name: Source-language transcription tests
+        run: npm run test:transcription
+
       - name: Build Next.js
         run: npm run build
 
