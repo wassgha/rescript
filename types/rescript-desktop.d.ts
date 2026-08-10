@@ -1,4 +1,4 @@
-/** Resting sizes the Electron shell switches between. */
+/** Renderer modes used by the Electron shell's two-step native Close behavior. */
 export type WindowMode = "compact" | "expanded";
 
 /** Actions the native File menu delegates to the renderer over IPC. Opening the
@@ -18,7 +18,7 @@ export interface RescriptDesktop {
     chrome: string;
     node: string;
   };
-  /** Resize the shell: "compact" for the upload screen, "expanded" for the editor. */
+  /** Report whether the upload screen or editor is active; this does not resize the window. */
   setWindowMode: (mode: WindowMode) => void;
   /** Mirror the telemetry opt-out to the main process, which gates its own reporting. */
   setTelemetryEnabled: (enabled: boolean) => void;

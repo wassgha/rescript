@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { useEditorStore } from "@/lib/store";
 import { getCutRanges, isWordCutOut } from "@/lib/edits";
@@ -23,7 +23,6 @@ import MediaPreview from "./MediaPreview";
 import Timeline from "./Timeline";
 import ExportDialog from "./ExportDialog";
 import { Download, Redo2, Undo2 } from "lucide-react";
-import LogoLoader from "./LogoLoader";
 import SettingsMenu from "./SettingsMenu";
 import ModelSelector, {
   LanguageSection,
@@ -33,11 +32,6 @@ import ModelSelector, {
 import ImportTranscriptOption from "./ImportTranscriptOption";
 import { MODEL_ORDER } from "@/lib/models";
 import { isTypingTarget } from "@/lib/keyboard";
-
-/** How long the desktop mode-change overlay stays up. Matches the macOS
- *  `setBounds(..., animate)` duration plus a small buffer so the layout
- *  underneath isn't revealed mid-resize. */
-const WINDOW_MODE_OVERLAY_MS = 380;
 
 /** Transcript and preview split, resizable in both orientations. Wide screens
  *  put the transcript first (left of the preview); stacked screens lead with
@@ -139,9 +133,6 @@ export default function Editor() {
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const setExportOpen = useEditorStore((s) => s.setExportOpen);
-
-  const [modeTransitioning, setModeTransitioning] = useState(false);
-  const wasIdle = useRef(status === "idle");
 
   // File › Open Project… reaches the same picker the upload screen uses, from
   // anywhere in the app.
@@ -247,18 +238,11 @@ export default function Editor() {
     })();
   }, [videoFile, skipTranscription, transcribe]);
 
-  // The desktop shell opens as a small upload window and grows once the
-  // three-pane editor takes over (and shrinks back on "start over").
-  // Cover the swap with a brief overlay so the layout reflow isn't visible
-  // while the window animates between sizes.
+  // The main process uses this mode only to preserve the native close behavior
+  // (close project first, then close the upload window). It no longer resizes
+  // the window; user-chosen bounds are persisted by Electron instead.
   useEffect(() => {
-    const idle = status === "idle";
-    window.rescriptDesktop?.setWindowMode(idle ? "compact" : "expanded");
-    if (!isElectron || wasIdle.current === idle) return;
-    wasIdle.current = idle;
-    setModeTransitioning(true);
-    const timer = window.setTimeout(() => setModeTransitioning(false), WINDOW_MODE_OVERLAY_MS);
-    return () => window.clearTimeout(timer);
+    window.rescriptDesktop?.setWindowMode(status === "idle" ? "compact" : "expanded");
   }, [status]);
 
   // Global shortcuts: space = play/pause, ⌘Z / ⇧⌘Z = undo / redo, S = split,
@@ -397,15 +381,6 @@ export default function Editor() {
           <EditorWorkspace />
           <Timeline />
         </>
-      )}
-      {modeTransitioning && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950"
-          aria-busy="true"
-          aria-live="polite"
-        >
-          <LogoLoader size={44} />
-        </div>
       )}
       {isElectron && (
         // Present in the layout tree (not display:none) so the native menu's
