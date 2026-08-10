@@ -10,7 +10,7 @@ import {
 } from "electron";
 import { join, normalize, extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { initMainSentry, setMainTelemetryEnabled } from "./sentry";
 import { initAutoUpdater } from "./updater";
 import {
@@ -26,13 +26,19 @@ const isMac = process.platform === "darwin";
 
 type WindowMode = "compact" | "expanded";
 
-/** The shell has two resting sizes: a small window for the upload screen, and a
- *  roomy one once the editor (transcript + preview + timeline) takes over. */
-const WINDOW_SIZES: Record<WindowMode, { width: number; height: number }> = {
-  compact: { width: 560, height: 400 },
-  expanded: { width: 1080, height: 740 },
+/** Start roomy enough for the three-pane editor; subsequent launches restore
+ *  the user's own normal bounds instead of forcing upload/editor sizes. */
+const DEFAULT_WINDOW_SIZE = { width: 1280, height: 820 };
+const MIN_SIZE = { width: 720, height: 480 };
+const WINDOW_STATE_FILE = "window-state.json";
+
+type StoredWindowState = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  maximized: boolean;
 };
-const MIN_SIZE = { width: 560, height: 400 };
 
 /** Height of the in-page drag strip (`h-12`), used to centre the traffic lights. */
 const TITLE_BAR_HEIGHT = 48;
@@ -179,39 +185,72 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-/** Resize a window to the given mode's resting size, keeping it centred on
- *  wherever the user left it rather than snapping to a corner. */
-function applyWindowMode(win: BrowserWindow, mode: WindowMode): void {
-  if (windowModes.get(win) === mode) return;
-  windowModes.set(win, mode);
-  // A maximized or full-screen window is already the size the user asked for.
-  if (win.isFullScreen() || win.isMaximized()) return;
+function isStoredWindowState(value: unknown): value is StoredWindowState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<StoredWindowState>;
+  return (
+    [state.x, state.y, state.width, state.height].every(Number.isFinite) &&
+    typeof state.maximized === "boolean"
+  );
+}
 
-  const current = win.getBounds();
-  const { workArea } = screen.getDisplayMatching(current);
-  const width = Math.min(WINDOW_SIZES[mode].width, workArea.width);
-  const height = Math.min(WINDOW_SIZES[mode].height, workArea.height);
-  win.setBounds(
-    {
+/** Restore saved bounds onto the closest current display. This also recovers
+ *  from a monitor being disconnected between launches. */
+function loadWindowState(): StoredWindowState {
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  const fallbackWidth = Math.min(DEFAULT_WINDOW_SIZE.width, primaryWorkArea.width);
+  const fallbackHeight = Math.min(DEFAULT_WINDOW_SIZE.height, primaryWorkArea.height);
+  const fallback: StoredWindowState = {
+    width: fallbackWidth,
+    height: fallbackHeight,
+    x: Math.round(primaryWorkArea.x + (primaryWorkArea.width - fallbackWidth) / 2),
+    y: Math.round(primaryWorkArea.y + (primaryWorkArea.height - fallbackHeight) / 2),
+    maximized: false,
+  };
+
+  const statePath = join(app.getPath("userData"), WINDOW_STATE_FILE);
+  if (!existsSync(statePath)) return fallback;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(statePath, "utf8"));
+    if (!isStoredWindowState(parsed)) return fallback;
+    const workArea = screen.getDisplayMatching(parsed).workArea;
+    const width = Math.min(Math.max(Math.round(parsed.width), MIN_SIZE.width), workArea.width);
+    const height = Math.min(
+      Math.max(Math.round(parsed.height), MIN_SIZE.height),
+      workArea.height
+    );
+    return {
       width,
       height,
-      x: Math.round(
-        clamp(
-          current.x + (current.width - width) / 2,
-          workArea.x,
-          workArea.x + workArea.width - width
-        )
-      ),
-      y: Math.round(
-        clamp(
-          current.y + (current.height - height) / 2,
-          workArea.y,
-          workArea.y + workArea.height - height
-        )
-      ),
-    },
-    true // animate (macOS)
-  );
+      x: Math.round(clamp(parsed.x, workArea.x, workArea.x + workArea.width - width)),
+      y: Math.round(clamp(parsed.y, workArea.y, workArea.y + workArea.height - height)),
+      maximized: parsed.maximized,
+    };
+  } catch (error) {
+    console.warn("Could not restore the saved window bounds.", error);
+    return fallback;
+  }
+}
+
+function saveWindowState(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  const bounds = win.getNormalBounds();
+  const state: StoredWindowState = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    maximized: win.isMaximized(),
+  };
+  try {
+    writeFileSync(
+      join(app.getPath("userData"), WINDOW_STATE_FILE),
+      JSON.stringify(state),
+      "utf8"
+    );
+  } catch (error) {
+    console.warn("Could not save the window bounds.", error);
+  }
 }
 
 /** Set once the app is really terminating, so the close interception below
@@ -219,8 +258,12 @@ function applyWindowMode(win: BrowserWindow, mode: WindowMode): void {
 let quitting = false;
 
 function createWindow(): BrowserWindow {
+  const restoredState = loadWindowState();
   const win = new BrowserWindow({
-    ...WINDOW_SIZES.compact,
+    x: restoredState.x,
+    y: restoredState.y,
+    width: restoredState.width,
+    height: restoredState.height,
     minWidth: MIN_SIZE.width,
     minHeight: MIN_SIZE.height,
     // Light by default — appearance is a user preference in the renderer.
@@ -248,7 +291,26 @@ function createWindow(): BrowserWindow {
   });
   windowModes.set(win, "compact");
 
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => {
+    if (restoredState.maximized) win.maximize();
+    win.show();
+  });
+
+  let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleWindowStateSave = () => {
+    if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
+    saveBoundsTimer = setTimeout(() => {
+      saveBoundsTimer = null;
+      saveWindowState(win);
+    }, 250);
+  };
+  win.on("resize", scheduleWindowStateSave);
+  win.on("move", scheduleWindowStateSave);
+  win.on("maximize", scheduleWindowStateSave);
+  win.on("unmaximize", scheduleWindowStateSave);
+  win.on("closed", () => {
+    if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
+  });
 
   // A reload tears down the listener the renderer registered; make it re-announce.
   win.webContents.on("did-start-navigation", (event) => {
@@ -262,6 +324,7 @@ function createWindow(): BrowserWindow {
   // next close (already on the upload screen) is a real close. Guarded on the
   // renderer being live, so an unresponsive page can still be closed.
   win.on("close", (event) => {
+    saveWindowState(win);
     if (quitting) return;
     if (windowModes.get(win) !== "expanded") return;
     if (!readyRenderers.has(win.webContents)) return;
@@ -323,7 +386,7 @@ if (!gotLock) {
   ipcMain.on("window:set-mode", (event, mode: unknown) => {
     if (mode !== "compact" && mode !== "expanded") return;
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) applyWindowMode(win, mode);
+    if (win) windowModes.set(win, mode);
   });
   ipcMain.handle(
     "window:is-full-screen",

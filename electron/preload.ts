@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
  * Minimal bridge for the renderer. Rescript's UI is still a normal web
  * surface; we only expose host metadata so the page can adapt chrome / skip
  * the COI service worker (headers come from the app:// protocol instead),
- * plus the few window controls the page drives (sizing, title-bar state).
+ * plus the few window controls the page drives (project mode, title-bar state).
  */
 contextBridge.exposeInMainWorld("rescriptDesktop", {
   platform: process.platform as NodeJS.Platform,
@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld("rescriptDesktop", {
     chrome: process.versions.chrome,
     node: process.versions.node,
   },
-  /** Switch between the compact upload window and the full editor window. */
+  /** Tell the host whether a project is open so native Close keeps its two-step behavior. */
   setWindowMode: (mode: "compact" | "expanded") => {
     ipcRenderer.send("window:set-mode", mode);
   },
