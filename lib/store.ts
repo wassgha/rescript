@@ -545,10 +545,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   renameSpeaker: (id, name) => {
-    const { speakers } = get();
+    const { speakers, words } = get();
     const next = renameSpeakerEntry(speakers, id, name);
     if (next === speakers) return;
-    pushEdit(get, set, { speakers: next });
+    pushEdit(get, set, {
+      speakers: speakersFromWords(words, next),
+    });
   },
 
   addSpeaker: (name) => {
@@ -613,7 +615,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!result) return;
     pushEdit(get, set, {
       words: result.words,
-      speakers: result.speakers,
+      speakers: speakersFromWords(result.words, result.speakers),
     });
   },
 
@@ -623,7 +625,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!result) return;
     pushEdit(get, set, {
       words: result.words,
-      speakers: result.speakers,
+      speakers: speakersFromWords(result.words, result.speakers),
     });
   },
 

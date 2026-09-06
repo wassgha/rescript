@@ -76,7 +76,9 @@ export function serializeTranscript(
   format: Exclude<TranscriptFormat, "docx" | "pdf">,
   options: SerializeOptions = {}
 ): string {
-  const speakers = options.speakers ?? speakersFromWords(words);
+  // Always re-derive against the word list so a stale speakers snapshot can't
+  // leave labels stuck on defaults after rename / replace-in-project.
+  const speakers = speakersFromWords(words, options.speakers ?? []);
   if (format === "json") return serializeJson(words, speakers);
   if (format === "txt" || format === "md") {
     return serializeDocument(words, format, { ...options, speakers });
@@ -99,7 +101,7 @@ export function serializeTranscriptBinary(
   format: "docx" | "pdf",
   options: SerializeOptions = {}
 ): Uint8Array {
-  const speakers = options.speakers ?? speakersFromWords(words);
+  const speakers = speakersFromWords(words, options.speakers ?? []);
   const turns = buildDocumentTurns(words, { ...options, speakers });
   if (format === "docx") return serializeDocx(turns, speakers, options.timestamps);
   return serializePdf(turns, speakers, options.timestamps);
@@ -174,7 +176,7 @@ function serializeDocument(
   format: "txt" | "md",
   options: SerializeOptions
 ): string {
-  const speakers = options.speakers ?? speakersFromWords(words);
+  const speakers = speakersFromWords(words, options.speakers ?? []);
   const turns = buildDocumentTurns(words, { ...options, speakers });
   const withTs = Boolean(options.timestamps);
 

@@ -106,16 +106,25 @@ export default function SpeakerLabel({
     mode !== "replace" &&
     trimmedQuery.length > 0 &&
     !exact;
+  // Rename (and replace-with-typed-name) offer a "rename to …" row when the
+  // query isn't already this speaker's label.
   const canRenameTo =
-    mode !== "replace" &&
     trimmedQuery.length > 0 &&
-    trimmedQuery.toLowerCase() !== label.toLowerCase();
+    trimmedQuery.toLowerCase() !== label.toLowerCase() &&
+    (mode !== "replace" || !exact);
 
   const applySpeaker = useCallback(
     (target: number | "new", name?: string) => {
       if (mode === "replace") {
-        if (target === "new" || target === speakerId) return;
-        replaceSpeakerInProject(speakerId, target);
+        if (target === speakerId) return;
+        if (target === "new") {
+          // Typed name with no existing match: rename this speaker everywhere.
+          const nextName = (name ?? trimmedQuery).trim();
+          if (!nextName) return;
+          renameSpeaker(speakerId, nextName);
+        } else {
+          replaceSpeakerInProject(speakerId, target);
+        }
       } else if (mode === "rename") {
         const nextName = (name ?? trimmedQuery).trim();
         if (!nextName) return;
@@ -154,7 +163,11 @@ export default function SpeakerLabel({
       applySpeaker(exact.id);
       return;
     }
-    if (mode === "replace") return;
+    if (mode === "replace") {
+      // No matching speaker — treat the query as a project-wide rename target.
+      applySpeaker("new", trimmedQuery);
+      return;
+    }
     applySpeaker("new", trimmedQuery);
   }, [trimmedQuery, mode, exact, applySpeaker, speakerId]);
 
@@ -289,10 +302,15 @@ export default function SpeakerLabel({
             </div>
 
             <div className="max-h-56 overflow-y-auto py-1">
-              {mode !== "replace" && canRenameTo && (
+              {canRenameTo && (
                 <button
                   type="button"
-                  onClick={() => applySpeaker(speakerId, trimmedQuery)}
+                  onClick={() =>
+                    applySpeaker(
+                      mode === "replace" ? "new" : speakerId,
+                      trimmedQuery
+                    )
+                  }
                   className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left text-[13px] text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800/80"
                 >
                   <UserRoundPen size={13} className="shrink-0 text-zinc-400" />
