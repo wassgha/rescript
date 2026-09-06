@@ -134,11 +134,17 @@ export const ko: Record<MessageKey, string> = {
   "export.format": "형식",
   "export.resolution": "해상도",
   "export.original": "원본",
-  "export.plainText": "일반 텍스트",
+  "export.plainText": "TXT",
+  "export.markdown": "Markdown",
   "export.statOriginal": "원본",
   "export.statCuts": "컷",
   "export.statEdited": "편집본",
-  "export.transcriptHelp": "화자 라벨이 포함된 텍스트이며 컷한 내용은 제거됩니다. 타임스탬프는 없습니다.",
+  "export.includeTimestamps": "타임스탬프 포함",
+  "export.transcriptHelp": "화자 라벨이 포함된 텍스트이며 컷한 내용은 제거됩니다.",
+  "export.transcriptHelpTimestamps":
+    "화자 라벨이 포함된 텍스트이며 컷한 내용은 제거됩니다. 각 발화는 편집된 타임라인 시각으로 시작합니다.",
+  "export.transcriptHelpPdf":
+    "PDF는 표준 라틴 글꼴을 사용합니다. 완전한 유니코드(CJK 등)에는 DOCX를 권장합니다.",
   "export.subtitlesHelp":
     "SRT와 VTT는 편집된 타임라인(컷 적용)을 사용합니다. JSON은 다시 가져오기 위해 전체 단어 목록을 유지합니다.",
   "export.encodingHelp": "ffmpeg.wasm으로 다시 인코딩 중 — 긴 파일은 시간이 걸립니다.",
@@ -148,8 +154,8 @@ export const ko: Record<MessageKey, string> = {
   "export.downloadFormat": ".{format} 다운로드",
   "export.exportFormat": "{format} 내보내기",
   "export.timeline": "타임라인",
-  "export.timelineTitle": "NLE 시퀀스 내보내기 (Resolve, Premiere, Final Cut, Pro Tools)",
-  "export.nle": "NLE",
+  "export.timelineTitle": "NLE / DAW 시퀀스 내보내기 (Resolve, Premiere, Final Cut, Pro Tools, Reaper)",
+  "export.nle": "형식",
   "export.frameRate": "프레임 레이트",
   "export.timelineHelp":
     "시퀀스는 원본 미디어를 파일 이름으로 참조합니다 — 가져온 뒤 NLE에서 다시 연결하세요.",
@@ -157,8 +163,11 @@ export const ko: Record<MessageKey, string> = {
   "export.timelineHelpFcpx": "Final Cut Pro FCPXML.",
   "export.timelineHelpPremiere": "Adobe Premiere Pro XML (xmeml).",
   "export.timelineHelpResolve": "DaVinci Resolve XML (xmeml).",
+  "export.timelineHelpReaper": "Reaper 프로젝트 (.rpp).",
+  "export.timelineHelpSamplitude":
+    "Samplitude EDL (.edl) — Reaper에서도 바로 열립니다.",
   "export.aafOverCap":
-    "이 편집에는 클립이 {count}개입니다. AAF는 최대 {max}개까지 지원합니다. Resolve, Premiere 또는 Final Cut을 사용하세요.",
+    "이 편집에는 클립이 {count}개입니다. AAF는 최대 {max}개까지 지원합니다. Resolve, Premiere, Final Cut, Reaper 또는 Samplitude EDL을 사용하세요.",
   "export.preparing": "준비 중…",
   "import.reading": "자막 읽는 중…",
   "import.importing": "가져오는 중…",

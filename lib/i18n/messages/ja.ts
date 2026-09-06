@@ -134,11 +134,17 @@ export const ja: Record<MessageKey, string> = {
   "export.format": "形式",
   "export.resolution": "解像度",
   "export.original": "元のまま",
-  "export.plainText": "プレーンテキスト",
+  "export.plainText": "TXT",
+  "export.markdown": "Markdown",
   "export.statOriginal": "元の長さ",
   "export.statCuts": "カット",
   "export.statEdited": "編集後",
-  "export.transcriptHelp": "話者ラベル付きテキスト。カット部分は除外され、タイムスタンプはありません。",
+  "export.includeTimestamps": "タイムスタンプを含める",
+  "export.transcriptHelp": "話者ラベル付きテキスト。カット部分は除外されます。",
+  "export.transcriptHelpTimestamps":
+    "話者ラベル付きテキスト。カット部分は除外され、各発話は編集後タイムラインの時刻で始まります。",
+  "export.transcriptHelpPdf":
+    "PDF はラテン系の標準フォントを使います。CJK など完全な Unicode には DOCX を推奨します。",
   "export.subtitlesHelp":
     "SRT と VTT は編集後のタイムライン（カット適用済み）を使用します。JSON は再インポート用に完全な単語リストを保持します。",
   "export.encodingHelp": "ffmpeg.wasm で再エンコード中 — 長いファイルは時間がかかります。",
@@ -148,8 +154,8 @@ export const ja: Record<MessageKey, string> = {
   "export.downloadFormat": ".{format} をダウンロード",
   "export.exportFormat": "{format} を書き出し",
   "export.timeline": "タイムライン",
-  "export.timelineTitle": "NLE シーケンスを書き出す（Resolve、Premiere、Final Cut、Pro Tools）",
-  "export.nle": "NLE",
+  "export.timelineTitle": "NLE / DAW シーケンスを書き出す（Resolve、Premiere、Final Cut、Pro Tools、Reaper）",
+  "export.nle": "形式",
   "export.frameRate": "フレームレート",
   "export.timelineHelp":
     "シーケンスは元のメディアをファイル名で参照します — 読み込み後に NLE で再リンクしてください。",
@@ -157,8 +163,11 @@ export const ja: Record<MessageKey, string> = {
   "export.timelineHelpFcpx": "Final Cut Pro FCPXML。",
   "export.timelineHelpPremiere": "Adobe Premiere Pro XML（xmeml）。",
   "export.timelineHelpResolve": "DaVinci Resolve XML（xmeml）。",
+  "export.timelineHelpReaper": "Reaper プロジェクト（.rpp）。",
+  "export.timelineHelpSamplitude":
+    "Samplitude EDL（.edl）— Reaper でも直接開けます。",
   "export.aafOverCap":
-    "この編集には {count} クリップあります。AAF は最大 {max} までです。Resolve、Premiere、または Final Cut を使ってください。",
+    "この編集には {count} クリップあります。AAF は最大 {max} までです。Resolve、Premiere、Final Cut、Reaper、または Samplitude EDL を使ってください。",
   "export.preparing": "準備中…",
   "import.reading": "文字起こしを読み込み中…",
   "import.importing": "インポート中…",

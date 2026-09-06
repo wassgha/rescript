@@ -134,11 +134,17 @@ export const fr: Record<MessageKey, string> = {
   "export.format": "Format",
   "export.resolution": "Résolution",
   "export.original": "Original",
-  "export.plainText": "Texte brut",
+  "export.plainText": "TXT",
+  "export.markdown": "Markdown",
   "export.statOriginal": "Original",
   "export.statCuts": "Coupes",
   "export.statEdited": "Monté",
-  "export.transcriptHelp": "Texte avec étiquettes de locuteur et coupes retirées. Sans horodatage.",
+  "export.includeTimestamps": "Inclure les horodatages",
+  "export.transcriptHelp": "Texte avec étiquettes de locuteur et coupes retirées.",
+  "export.transcriptHelpTimestamps":
+    "Texte avec étiquettes de locuteur et coupes retirées. Chaque tour commence par son temps sur la timeline montée.",
+  "export.transcriptHelpPdf":
+    "Le PDF utilise une police latine standard — préférez DOCX pour l’Unicode complet (CJK, etc.).",
   "export.subtitlesHelp":
     "SRT et VTT utilisent la timeline montée (coupes appliquées). JSON conserve la liste complète des mots pour une réimportation.",
   "export.encodingHelp": "Réencodage avec ffmpeg.wasm — les fichiers longs prennent un moment.",
@@ -148,8 +154,8 @@ export const fr: Record<MessageKey, string> = {
   "export.downloadFormat": "Télécharger .{format}",
   "export.exportFormat": "Exporter {format}",
   "export.timeline": "Timeline",
-  "export.timelineTitle": "Exporter une séquence NLE (Resolve, Premiere, Final Cut, Pro Tools)",
-  "export.nle": "NLE",
+  "export.timelineTitle": "Exporter une séquence NLE / DAW (Resolve, Premiere, Final Cut, Pro Tools, Reaper)",
+  "export.nle": "Format",
   "export.frameRate": "Cadence",
   "export.timelineHelp":
     "La séquence référence le média original par nom de fichier — reliez-le dans le NLE après l’import.",
@@ -157,8 +163,11 @@ export const fr: Record<MessageKey, string> = {
   "export.timelineHelpFcpx": "FCPXML Final Cut Pro.",
   "export.timelineHelpPremiere": "XML Adobe Premiere Pro (xmeml).",
   "export.timelineHelpResolve": "XML DaVinci Resolve (xmeml).",
+  "export.timelineHelpReaper": "Projet Reaper (.rpp).",
+  "export.timelineHelpSamplitude":
+    "EDL Samplitude (.edl) — s’ouvre aussi directement dans Reaper.",
   "export.aafOverCap":
-    "Ce montage a {count} clips ; AAF en prend en charge jusqu’à {max}. Utilisez Resolve, Premiere ou Final Cut.",
+    "Ce montage a {count} clips ; AAF en prend en charge jusqu’à {max}. Utilisez Resolve, Premiere, Final Cut, Reaper ou EDL Samplitude.",
   "export.preparing": "Préparation…",
   "import.reading": "Lecture de la transcription…",
   "import.importing": "Importation…",

@@ -135,11 +135,17 @@ export const en = {
   "export.format": "Format",
   "export.resolution": "Resolution",
   "export.original": "Original",
-  "export.plainText": "Plain text",
+  "export.plainText": "TXT",
+  "export.markdown": "Markdown",
   "export.statOriginal": "Original",
   "export.statCuts": "Cuts",
   "export.statEdited": "Edited",
-  "export.transcriptHelp": "Speaker-labeled text with cuts removed. No timestamps.",
+  "export.includeTimestamps": "Include timestamps",
+  "export.transcriptHelp": "Speaker-labeled text with cuts removed.",
+  "export.transcriptHelpTimestamps":
+    "Speaker-labeled text with cuts removed. Each turn starts with its edited-timeline time.",
+  "export.transcriptHelpPdf":
+    "PDF uses a standard Latin font — prefer DOCX for full Unicode (CJK, etc.).",
   "export.subtitlesHelp":
     "SRT and VTT use the edited timeline (cuts applied). JSON keeps the full word list for re-import.",
   "export.encodingHelp": "Re-encoding with ffmpeg.wasm — longer files take a while.",
@@ -149,8 +155,9 @@ export const en = {
   "export.downloadFormat": "Download .{format}",
   "export.exportFormat": "Export {format}",
   "export.timeline": "Timeline",
-  "export.timelineTitle": "Export an NLE sequence (Resolve, Premiere, Final Cut, Pro Tools)",
-  "export.nle": "NLE",
+  "export.timelineTitle":
+    "Export an NLE / DAW sequence (Resolve, Premiere, Final Cut, Pro Tools, Reaper)",
+  "export.nle": "Format",
   "export.frameRate": "Frame rate",
   "export.timelineHelp":
     "Sequence references your original media by filename — relink in the NLE after import.",
@@ -158,8 +165,11 @@ export const en = {
   "export.timelineHelpFcpx": "Final Cut Pro FCPXML.",
   "export.timelineHelpPremiere": "Adobe Premiere Pro XML (xmeml).",
   "export.timelineHelpResolve": "DaVinci Resolve XML (xmeml).",
+  "export.timelineHelpReaper": "Reaper project (.rpp).",
+  "export.timelineHelpSamplitude":
+    "Samplitude EDL (.edl) — also opens directly in Reaper.",
   "export.aafOverCap":
-    "This edit has {count} clips; AAF supports up to {max}. Use Resolve, Premiere, or Final Cut instead.",
+    "This edit has {count} clips; AAF supports up to {max}. Use Resolve, Premiere, Final Cut, Reaper, or Samplitude EDL instead.",
   "export.preparing": "Preparing…",
   "import.reading": "Reading transcript…",
   "import.importing": "Import…",

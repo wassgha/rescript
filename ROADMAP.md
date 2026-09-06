@@ -67,11 +67,11 @@ User-facing progress for Rescript. Items are marked done when they shipped to
 - [x] Recent projects list on the home screen (open / delete)
 
 ### Export
-- [x] Tabbed export dialog: **Video**, **Audio**, **Transcript**, **Subtitles**
+- [x] Tabbed export dialog: **Video**, **Audio**, **Transcript**, **Timeline**
 - [x] Video: format (MP4 / WebM) and resolution options
 - [x] Audio: M4A / MP3 / WAV (including from video projects)
-- [x] Transcript: plain text or Markdown (speaker turns, cuts removed)
-- [x] Subtitles: SRT / VTT (edited timeline) or JSON (full words for re-import)
+- [x] Transcript: TXT / Markdown / DOCX / PDF (optional timestamps) or SRT / VTT / JSON captions
+- [x] Timeline: Resolve / Premiere XML, Final Cut FCPXML, Pro Tools AAF, Reaper `.rpp`, Samplitude `.edl` (format dropdown)
 
 ### Desktop & distribution
 - [x] Live web app on GitHub Pages
@@ -84,7 +84,6 @@ User-facing progress for Rescript. Items are marked done when they shipped to
 - [ ] **Parakeet TDT v3** as an optional transcription backend (faster / more accurate word timings)
 - [ ] Fix remaining drift / lag and push word timestamps closer to true speech boundaries
 - [ ] In-app transcript editor (richer inline editing beyond the Correct popover)
-- [ ] Export the timeline itself to video editing tools (e.g. project / EDL / FCPXML-style interchange)
 - [ ] **Regenerate** — text-to-speech with accurate voice cloning so rewritten lines can be spoken in the original voice
 - [ ] Native macOS SpeechAnalyzer as an optional transcription backend
 - [ ] More languages beyond English / German; local model import for air-gapped first runs
