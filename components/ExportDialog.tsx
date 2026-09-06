@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 import {
-  Captions,
   Clapperboard,
   Download,
   FileText,
@@ -23,8 +22,7 @@ import {
 } from "@/lib/ffmpeg";
 import {
   downloadTranscript,
-  type SubtitleFormat,
-  type TranscriptDocFormat,
+  type TranscriptFormat,
 } from "@/lib/serializeTranscript";
 import {
   downloadTimelineExport,
@@ -39,7 +37,10 @@ import { useI18n } from "./I18nProvider";
 import { localizeRuntimeMessage } from "@/lib/i18n";
 import { en } from "@/lib/i18n/messages/en";
 
-type ExportTab = "video" | "audio" | "transcript" | "subtitles" | "timeline";
+type ExportTab = "video" | "audio" | "transcript" | "timeline";
+
+/** Document formats that support an optional timestamps toggle. */
+const DOC_FORMATS = new Set<TranscriptFormat>(["txt", "md", "docx", "pdf"]);
 
 const VIDEO_FORMATS: { value: VideoExportFormat; label: string }[] = [
   { value: "mp4", label: "MP4" },
@@ -59,14 +60,12 @@ const AUDIO_FORMATS: { value: AudioExportFormat; label: string }[] = [
   { value: "wav", label: "WAV" },
 ];
 
-const TRANSCRIPT_FORMATS: { value: TranscriptDocFormat; label: string }[] = [
+/** Transcript + subtitle formats in one list (timestamps optional on docs). */
+const TEXT_FORMATS: { value: TranscriptFormat; label: string }[] = [
   { value: "txt", label: "TXT" },
   { value: "md", label: "MD" },
   { value: "docx", label: "DOCX" },
   { value: "pdf", label: "PDF" },
-];
-
-const SUBTITLE_FORMATS: { value: SubtitleFormat; label: string }[] = [
   { value: "srt", label: "SRT" },
   { value: "vtt", label: "VTT" },
   { value: "json", label: "JSON" },
@@ -109,10 +108,8 @@ export default function ExportDialog() {
   const [videoFormat, setVideoFormat] = useState<VideoExportFormat>("mp4");
   const [resolution, setResolution] = useState<VideoExportResolution>("original");
   const [audioFormat, setAudioFormat] = useState<AudioExportFormat>("m4a");
-  const [transcriptFormat, setTranscriptFormat] =
-    useState<TranscriptDocFormat>("txt");
-  const [transcriptTimestamps, setTranscriptTimestamps] = useState(false);
-  const [subtitleFormat, setSubtitleFormat] = useState<SubtitleFormat>("srt");
+  const [textFormat, setTextFormat] = useState<TranscriptFormat>("txt");
+  const [includeTimestamps, setIncludeTimestamps] = useState(false);
   const [timelineFormat, setTimelineFormat] =
     useState<TimelineExportFormat>("resolve");
   const [timelineFrameRate, setTimelineFrameRate] =
@@ -146,7 +143,7 @@ export default function ExportDialog() {
         ? isAudioProject
           ? "timeline"
           : "video"
-        : (tab === "transcript" || tab === "subtitles") && !hasWords
+        : tab === "transcript" && !hasWords
           ? isAudioProject
             ? hasAudioTrack
               ? "audio"
@@ -271,43 +268,37 @@ export default function ExportDialog() {
     setExportUrl,
   ]);
 
-  const exportText = useCallback(
-    (kind: "transcript" | "subtitles") => {
-      if (!hasWords) return;
-      const format = kind === "transcript" ? transcriptFormat : subtitleFormat;
-      try {
-        downloadTranscript(words, format, baseName, {
-          duration,
-          cuts,
-          speakers,
-          ...(kind === "transcript"
-            ? { timestamps: transcriptTimestamps }
-            : {}),
-        });
-        setError(null);
-        trackEvent("export_completed", {
-          kind,
-          format,
-          ...(kind === "transcript"
-            ? { timestamps: transcriptTimestamps }
-            : {}),
-        });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : en["error.export"]);
-      }
-    },
-    [
-      hasWords,
-      words,
-      speakers,
-      transcriptFormat,
-      transcriptTimestamps,
-      subtitleFormat,
-      baseName,
-      duration,
-      cuts,
-    ]
-  );
+  const textSupportsTimestamps = DOC_FORMATS.has(textFormat);
+
+  const exportText = useCallback(() => {
+    if (!hasWords) return;
+    try {
+      downloadTranscript(words, textFormat, baseName, {
+        duration,
+        cuts,
+        speakers,
+        ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
+      });
+      setError(null);
+      trackEvent("export_completed", {
+        kind: "transcript",
+        format: textFormat,
+        ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : en["error.export"]);
+    }
+  }, [
+    hasWords,
+    words,
+    speakers,
+    textFormat,
+    textSupportsTimestamps,
+    includeTimestamps,
+    baseName,
+    duration,
+    cuts,
+  ]);
 
   const exportTimeline = useCallback(async () => {
     if (!videoFile) return;
@@ -385,13 +376,6 @@ export default function ExportDialog() {
       title: !hasWords ? t("export.noWordsFirst") : undefined,
     },
     {
-      id: "subtitles",
-      label: t("export.subtitles"),
-      icon: Captions,
-      disabled: !hasWords,
-      title: !hasWords ? t("export.noWordsFirst") : undefined,
-    },
-    {
       id: "timeline",
       label: t("export.timeline"),
       icon: Clapperboard,
@@ -424,7 +408,7 @@ export default function ExportDialog() {
         </div>
 
         <div
-          className="mb-5 grid grid-cols-5 gap-0.5 rounded-xl bg-zinc-100 p-0.5 dark:bg-zinc-800"
+          className="mb-5 grid grid-cols-4 gap-0.5 rounded-xl bg-zinc-100 p-0.5 dark:bg-zinc-800"
           role="tablist"
           aria-label={t("export.type")}
         >
@@ -501,62 +485,65 @@ export default function ExportDialog() {
           <div className="mb-5 space-y-3">
             <OptionGroup
               label={t("export.format")}
-              value={transcriptFormat}
-              options={TRANSCRIPT_FORMATS.map((option) =>
+              value={textFormat}
+              options={TEXT_FORMATS.map((option) =>
                 option.value === "txt"
                   ? { ...option, label: t("export.plainText") }
                   : option.value === "md"
                     ? { ...option, label: t("export.markdown") }
                     : option
               )}
-              onChange={setTranscriptFormat}
+              columns={4}
+              onChange={setTextFormat}
             />
-            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200">
-              <input
-                type="checkbox"
-                checked={transcriptTimestamps}
-                onChange={(e) => setTranscriptTimestamps(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
-              />
-              <span>{t("export.includeTimestamps")}</span>
-            </label>
+            {textSupportsTimestamps && (
+              <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={includeTimestamps}
+                  onChange={(e) => setIncludeTimestamps(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
+                />
+                <span>{t("export.includeTimestamps")}</span>
+              </label>
+            )}
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {transcriptTimestamps
-                ? t("export.transcriptHelpTimestamps")
-                : t("export.transcriptHelp")}
-              {transcriptFormat === "pdf" ? ` ${t("export.transcriptHelpPdf")}` : ""}
-            </p>
-          </div>
-        )}
-
-        {activeTab === "subtitles" && (
-          <div className="mb-5 space-y-3">
-            <OptionGroup
-              label={t("export.format")}
-              value={subtitleFormat}
-              options={SUBTITLE_FORMATS}
-              onChange={setSubtitleFormat}
-            />
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {t("export.subtitlesHelp")}
+              {textFormat === "srt" || textFormat === "vtt" || textFormat === "json"
+                ? t("export.subtitlesHelp")
+                : includeTimestamps
+                  ? t("export.transcriptHelpTimestamps")
+                  : t("export.transcriptHelp")}
+              {textFormat === "pdf" ? ` ${t("export.transcriptHelpPdf")}` : ""}
             </p>
           </div>
         )}
 
         {activeTab === "timeline" && (
           <div className="mb-5 space-y-4">
-            <OptionGroup
-              label={t("export.nle")}
-              value={timelineFormat}
-              options={TIMELINE_FORMATS.map(({ value, label, ext }) => ({
-                value,
-                label,
-                hint: `.${ext}`,
-              }))}
-              columns={3}
-              disabled={timelineBusy}
-              onChange={setTimelineFormat}
-            />
+            <div>
+              <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
+                {t("export.nle")}
+              </p>
+              <select
+                value={timelineFormat}
+                disabled={timelineBusy}
+                onChange={(e) =>
+                  setTimelineFormat(e.target.value as TimelineExportFormat)
+                }
+                aria-label={t("export.nle")}
+                className="h-10 w-full appearance-none rounded-lg border border-zinc-200 bg-white bg-[length:12px] bg-[right_0.75rem_center] bg-no-repeat px-3 pr-9 text-sm text-zinc-900 outline-none transition focus:border-zinc-400 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50 dark:focus:border-zinc-500"
+                style={{
+                  backgroundImage:
+                    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")",
+                }}
+              >
+                {TIMELINE_FORMATS.map(({ value, label, ext }) => (
+                  <option key={value} value={value}>
+                    {label} (.{ext})
+                  </option>
+                ))}
+              </select>
+            </div>
             {showTimelineFrameRate && (
               <div>
                 <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
@@ -665,23 +652,12 @@ export default function ExportDialog() {
 
         {activeTab === "transcript" && (
           <button
-            onClick={() => exportText("transcript")}
+            onClick={exportText}
             disabled={!hasWords}
             className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             <Download size={15} />
-            {t("export.downloadFormat", { format: transcriptFormat })}
-          </button>
-        )}
-
-        {activeTab === "subtitles" && (
-          <button
-            onClick={() => exportText("subtitles")}
-            disabled={!hasWords}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            <Download size={15} />
-            {t("export.downloadFormat", { format: subtitleFormat })}
+            {t("export.downloadFormat", { format: textFormat })}
           </button>
         )}
 

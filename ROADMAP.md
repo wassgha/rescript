@@ -67,12 +67,11 @@ User-facing progress for Rescript. Items are marked done when they shipped to
 - [x] Recent projects list on the home screen (open / delete)
 
 ### Export
-- [x] Tabbed export dialog: **Video**, **Audio**, **Transcript**, **Subtitles**, **Timeline**
+- [x] Tabbed export dialog: **Video**, **Audio**, **Transcript**, **Timeline**
 - [x] Video: format (MP4 / WebM) and resolution options
 - [x] Audio: M4A / MP3 / WAV (including from video projects)
-- [x] Transcript: plain text, Markdown, DOCX, or PDF (optional timestamps; cuts removed)
-- [x] Subtitles: SRT / VTT (edited timeline) or JSON (full words for re-import)
-- [x] Timeline: Resolve / Premiere XML, Final Cut FCPXML, Pro Tools AAF, Reaper `.rpp`, Samplitude `.edl`
+- [x] Transcript: TXT / Markdown / DOCX / PDF (optional timestamps) or SRT / VTT / JSON captions
+- [x] Timeline: Resolve / Premiere XML, Final Cut FCPXML, Pro Tools AAF, Reaper `.rpp`, Samplitude `.edl` (format dropdown)
 
 ### Desktop & distribution
 - [x] Live web app on GitHub Pages
