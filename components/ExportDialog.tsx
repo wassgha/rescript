@@ -60,8 +60,10 @@ const AUDIO_FORMATS: { value: AudioExportFormat; label: string }[] = [
 ];
 
 const TRANSCRIPT_FORMATS: { value: TranscriptDocFormat; label: string }[] = [
-  { value: "txt", label: "Plain text" },
-  { value: "md", label: "Markdown" },
+  { value: "txt", label: "TXT" },
+  { value: "md", label: "MD" },
+  { value: "docx", label: "DOCX" },
+  { value: "pdf", label: "PDF" },
 ];
 
 const SUBTITLE_FORMATS: { value: SubtitleFormat; label: string }[] = [
@@ -69,6 +71,23 @@ const SUBTITLE_FORMATS: { value: SubtitleFormat; label: string }[] = [
   { value: "vtt", label: "VTT" },
   { value: "json", label: "JSON" },
 ];
+
+const TIMELINE_HELP_KEY: Record<
+  TimelineExportFormat,
+  | "export.timelineHelpResolve"
+  | "export.timelineHelpPremiere"
+  | "export.timelineHelpFcpx"
+  | "export.timelineHelpAaf"
+  | "export.timelineHelpReaper"
+  | "export.timelineHelpSamplitude"
+> = {
+  resolve: "export.timelineHelpResolve",
+  premiere: "export.timelineHelpPremiere",
+  fcpx: "export.timelineHelpFcpx",
+  aaf: "export.timelineHelpAaf",
+  reaper: "export.timelineHelpReaper",
+  samplitude: "export.timelineHelpSamplitude",
+};
 
 export default function ExportDialog() {
   const { t } = useI18n();
@@ -92,6 +111,7 @@ export default function ExportDialog() {
   const [audioFormat, setAudioFormat] = useState<AudioExportFormat>("m4a");
   const [transcriptFormat, setTranscriptFormat] =
     useState<TranscriptDocFormat>("txt");
+  const [transcriptTimestamps, setTranscriptTimestamps] = useState(false);
   const [subtitleFormat, setSubtitleFormat] = useState<SubtitleFormat>("srt");
   const [timelineFormat, setTimelineFormat] =
     useState<TimelineExportFormat>("resolve");
@@ -112,6 +132,8 @@ export default function ExportDialog() {
   );
   const aafOverCap =
     timelineFormat === "aaf" && keepRangeCount > AAF_MAX_CLIPS;
+  const timelineMeta = TIMELINE_FORMATS.find((f) => f.value === timelineFormat);
+  const showTimelineFrameRate = timelineMeta?.needsFrameRate ?? true;
   const exporting = status === "exporting";
   const dialogBusy = exporting || timelineBusy;
   const hasWords = words.length > 0;
@@ -258,9 +280,18 @@ export default function ExportDialog() {
           duration,
           cuts,
           speakers,
+          ...(kind === "transcript"
+            ? { timestamps: transcriptTimestamps }
+            : {}),
         });
         setError(null);
-        trackEvent("export_completed", { kind, format });
+        trackEvent("export_completed", {
+          kind,
+          format,
+          ...(kind === "transcript"
+            ? { timestamps: transcriptTimestamps }
+            : {}),
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : en["error.export"]);
       }
@@ -270,6 +301,7 @@ export default function ExportDialog() {
       words,
       speakers,
       transcriptFormat,
+      transcriptTimestamps,
       subtitleFormat,
       baseName,
       duration,
@@ -473,12 +505,26 @@ export default function ExportDialog() {
               options={TRANSCRIPT_FORMATS.map((option) =>
                 option.value === "txt"
                   ? { ...option, label: t("export.plainText") }
-                  : option
+                  : option.value === "md"
+                    ? { ...option, label: t("export.markdown") }
+                    : option
               )}
               onChange={setTranscriptFormat}
             />
+            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200">
+              <input
+                type="checkbox"
+                checked={transcriptTimestamps}
+                onChange={(e) => setTranscriptTimestamps(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
+              />
+              <span>{t("export.includeTimestamps")}</span>
+            </label>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {t("export.transcriptHelp")}
+              {transcriptTimestamps
+                ? t("export.transcriptHelpTimestamps")
+                : t("export.transcriptHelp")}
+              {transcriptFormat === "pdf" ? ` ${t("export.transcriptHelpPdf")}` : ""}
             </p>
           </div>
         )}
@@ -502,55 +548,50 @@ export default function ExportDialog() {
             <OptionGroup
               label={t("export.nle")}
               value={timelineFormat}
-              options={TIMELINE_FORMATS.map(({ value, label }) => ({
+              options={TIMELINE_FORMATS.map(({ value, label, ext }) => ({
                 value,
                 label,
+                hint: `.${ext}`,
               }))}
+              columns={3}
               disabled={timelineBusy}
               onChange={setTimelineFormat}
             />
-            <div>
-              <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
-                {t("export.frameRate")}
-              </p>
-              <div
-                className="grid grid-cols-4 gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800"
-                role="radiogroup"
-                aria-label={t("export.frameRate")}
-              >
-                {TIMELINE_FRAME_RATES.map((opt) => {
-                  const selected = timelineFrameRate === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      disabled={timelineBusy}
-                      onClick={() => setTimelineFrameRate(opt.value)}
-                      className={`flex h-8 items-center justify-center rounded-md px-1 text-[11px] font-medium tabular-nums transition disabled:opacity-40 ${
-                        selected
-                          ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-50"
-                          : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
+            {showTimelineFrameRate && (
+              <div>
+                <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
+                  {t("export.frameRate")}
+                </p>
+                <div
+                  className="grid grid-cols-4 gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800"
+                  role="radiogroup"
+                  aria-label={t("export.frameRate")}
+                >
+                  {TIMELINE_FRAME_RATES.map((opt) => {
+                    const selected = timelineFrameRate === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        disabled={timelineBusy}
+                        onClick={() => setTimelineFrameRate(opt.value)}
+                        className={`flex h-8 items-center justify-center rounded-md px-1 text-[11px] font-medium tabular-nums transition disabled:opacity-40 ${
+                          selected
+                            ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-50"
+                            : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {t("export.timelineHelp")}{" "}
-              {t(
-                timelineFormat === "aaf"
-                  ? "export.timelineHelpAaf"
-                  : timelineFormat === "fcpx"
-                    ? "export.timelineHelpFcpx"
-                    : timelineFormat === "premiere"
-                      ? "export.timelineHelpPremiere"
-                      : "export.timelineHelpResolve"
-              )}
+              {t("export.timelineHelp")} {t(TIMELINE_HELP_KEY[timelineFormat])}
             </p>
             {aafOverCap && (
               <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
@@ -654,9 +695,7 @@ export default function ExportDialog() {
             {timelineBusy
               ? t("export.preparing")
               : t("export.downloadFormat", {
-                  format:
-                    TIMELINE_FORMATS.find((f) => f.value === timelineFormat)
-                      ?.ext ?? "xml",
+                  format: timelineMeta?.ext ?? "xml",
                 })}
           </button>
         )}
@@ -708,15 +747,19 @@ function OptionGroup<T extends string>({
   label,
   value,
   options,
+  columns,
   disabled,
   onChange,
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; hint?: string }[];
+  /** Cap columns so longer lists wrap instead of crushing labels. */
+  columns?: number;
   disabled?: boolean;
   onChange: (value: T) => void;
 }) {
+  const cols = Math.min(columns ?? options.length, options.length);
   return (
     <div>
       <p className="mb-2 text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
@@ -724,7 +767,7 @@ function OptionGroup<T extends string>({
       </p>
       <div
         className="grid gap-0.5 rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800"
-        style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         role="radiogroup"
         aria-label={label}
       >
@@ -738,13 +781,24 @@ function OptionGroup<T extends string>({
               aria-checked={selected}
               disabled={disabled}
               onClick={() => onChange(opt.value)}
-              className={`flex h-8 items-center justify-center rounded-md px-1 text-xs font-medium transition disabled:opacity-40 ${
+              className={`flex min-h-8 flex-col items-center justify-center rounded-md px-1 py-1.5 text-xs font-medium transition disabled:opacity-40 ${
                 selected
                   ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-50"
                   : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
               }`}
             >
-              {opt.label}
+              <span className="leading-tight">{opt.label}</span>
+              {opt.hint && (
+                <span
+                  className={`text-[10px] font-normal leading-tight ${
+                    selected
+                      ? "text-zinc-400 dark:text-zinc-300"
+                      : "text-zinc-400 dark:text-zinc-500"
+                  }`}
+                >
+                  {opt.hint}
+                </span>
+              )}
             </button>
           );
         })}

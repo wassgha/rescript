@@ -5,8 +5,10 @@
 import { parseTranscript } from "../lib/parseTranscript";
 import {
   formatSrtTimestamp,
+  formatTranscriptTimestamp,
   formatVttTimestamp,
   serializeTranscript,
+  serializeTranscriptBinary,
 } from "../lib/serializeTranscript";
 import type { Word } from "../lib/types";
 
@@ -95,6 +97,66 @@ const sample: Word[] = [
   assert(md.includes("How are you"), "md text 2");
   assert(!md.includes("um"), "md omits deleted");
   console.log("md export: ok");
+}
+
+{
+  const txt = serializeTranscript(sample, "txt", {
+    duration: 10,
+    timestamps: true,
+  });
+  assert(txt.includes("[0:01] Speaker 1: Hello world"), `txt timestamps\n${txt}`);
+  assert(txt.includes("[0:03] Speaker 2: How are you"), `txt timestamps 2\n${txt}`);
+  console.log("txt timestamps: ok");
+}
+
+{
+  const md = serializeTranscript(sample, "md", {
+    duration: 10,
+    timestamps: true,
+  });
+  assert(md.includes("**[0:01] Speaker 1**"), `md timestamps\n${md}`);
+  assert(md.includes("**[0:03] Speaker 2**"), `md timestamps 2\n${md}`);
+  console.log("md timestamps: ok");
+}
+
+{
+  const docx = serializeTranscriptBinary(sample, "docx", { duration: 10 });
+  assert(docx[0] === 0x50 && docx[1] === 0x4b, "docx zip magic");
+  assert(docx.length > 500, `docx size ${docx.length}`);
+  const asText = new TextDecoder().decode(docx);
+  assert(asText.includes("word/document.xml"), "docx has document part");
+  assert(asText.includes("Speaker 1"), "docx has speaker");
+  assert(asText.includes("Hello world"), "docx has text");
+  console.log("docx export: ok");
+}
+
+{
+  const docx = serializeTranscriptBinary(sample, "docx", {
+    duration: 10,
+    timestamps: true,
+  });
+  const asText = new TextDecoder().decode(docx);
+  assert(asText.includes("[0:01] Speaker 1"), `docx timestamps\n`);
+  console.log("docx timestamps: ok");
+}
+
+{
+  const pdf = serializeTranscriptBinary(sample, "pdf", { duration: 10 });
+  const head = new TextDecoder().decode(pdf.slice(0, 8));
+  assert(head.startsWith("%PDF-1."), `pdf header ${head}`);
+  assert(pdf.length > 400, `pdf size ${pdf.length}`);
+  const asText = new TextDecoder().decode(pdf);
+  assert(asText.includes("Speaker 1"), "pdf has speaker");
+  assert(asText.includes("Hello world"), "pdf has text");
+  assert(asText.includes("%%EOF"), "pdf eof");
+  console.log("pdf export: ok");
+}
+
+{
+  assert(formatTranscriptTimestamp(0) === "0:00", "ts zero");
+  assert(formatTranscriptTimestamp(65) === "1:05", "ts mm:ss");
+  assert(formatTranscriptTimestamp(3661) === "1:01:01", "ts hh:mm:ss");
+  console.log("transcript timestamps: ok");
 }
 
 {

@@ -3,19 +3,20 @@ import { getCutRanges, originalToEdited } from "./edits";
 import { speakerLabel, speakersFromWords } from "./speakers";
 import { groupWordsBySpeaker } from "./transcript";
 import type { SpeakerInfo, TimeRange, Word } from "./types";
+import { zipStore } from "./zipStore";
 
 /** Timed caption / subtitle formats (importable). */
 export type SubtitleFormat = "srt" | "vtt" | "json";
 
-/** Untimed transcript document formats. */
-export type TranscriptDocFormat = "txt" | "md";
+/** Transcript document formats (speaker turns). */
+export type TranscriptDocFormat = "txt" | "md" | "docx" | "pdf";
 
 export type TranscriptFormat = SubtitleFormat | TranscriptDocFormat;
 
 export interface SerializeOptions {
   /**
-   * When true (default for SRT/VTT/TXT/MD), omit cut words and remap times onto
-   * the edited timeline so captions sync with the exported media.
+   * When true (default for SRT/VTT/TXT/MD/DOCX/PDF), omit cut words and remap
+   * times onto the edited timeline so captions sync with the exported media.
    * JSON ignores this and always writes the full word list for round-trips.
    */
   editedTimeline?: boolean;
@@ -28,6 +29,8 @@ export interface SerializeOptions {
   cuts?: TimeRange[];
   /** Named speakers for labels in captions / documents / JSON. */
   speakers?: SpeakerInfo[];
+  /** Prefix each speaker turn with its start time (document formats only). */
+  timestamps?: boolean;
 }
 
 interface Cue {
@@ -35,6 +38,12 @@ interface Cue {
   end: number;
   text: string;
   speaker: number;
+}
+
+interface DocumentTurn {
+  speaker: number;
+  text: string;
+  start: number;
 }
 
 /** Split a cue when the gap between consecutive words exceeds this (seconds). */
@@ -46,6 +55,8 @@ const MIME: Record<TranscriptFormat, string> = {
   json: "application/json",
   txt: "text/plain",
   md: "text/markdown",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pdf: "application/pdf",
 };
 
 export function transcriptMime(format: TranscriptFormat): string {
@@ -57,14 +68,12 @@ export function transcriptExtension(format: TranscriptFormat): string {
 }
 
 /**
- * Serialize editor words to a subtitle or transcript document format.
- * SRT/VTT group consecutive same-speaker words into cues (splitting on gaps).
- * TXT/MD write speaker-labeled turns without timestamps.
- * JSON writes `{ "words": [...] }` matching `parseTranscript` import.
+ * Serialize editor words to a subtitle or text transcript format.
+ * Binary formats (DOCX / PDF) use {@link serializeTranscriptBinary}.
  */
 export function serializeTranscript(
   words: Word[],
-  format: TranscriptFormat,
+  format: Exclude<TranscriptFormat, "docx" | "pdf">,
   options: SerializeOptions = {}
 ): string {
   const speakers = options.speakers ?? speakersFromWords(words);
@@ -84,6 +93,18 @@ export function serializeTranscript(
     : serializeSrt(cues, speakers);
 }
 
+/** Serialize to DOCX or PDF (binary). */
+export function serializeTranscriptBinary(
+  words: Word[],
+  format: "docx" | "pdf",
+  options: SerializeOptions = {}
+): Uint8Array {
+  const speakers = options.speakers ?? speakersFromWords(words);
+  const turns = buildDocumentTurns(words, { ...options, speakers });
+  if (format === "docx") return serializeDocx(turns, speakers, options.timestamps);
+  return serializePdf(turns, speakers, options.timestamps);
+}
+
 /** Trigger a browser download of the serialized transcript / subtitles. */
 export function downloadTranscript(
   words: Word[],
@@ -91,14 +112,25 @@ export function downloadTranscript(
   filename: string,
   options: SerializeOptions = {}
 ): void {
-  const text = serializeTranscript(words, format, options);
-  const blob = new Blob([text], { type: `${MIME[format]};charset=utf-8` });
+  const name = filename.endsWith(`.${format}`)
+    ? filename
+    : `${filename}${transcriptExtension(format)}`;
+
+  let blob: Blob;
+  if (format === "docx" || format === "pdf") {
+    const bytes = serializeTranscriptBinary(words, format, options);
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    blob = new Blob([copy], { type: MIME[format] });
+  } else {
+    const text = serializeTranscript(words, format, options);
+    blob = new Blob([text], { type: `${MIME[format]};charset=utf-8` });
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename.endsWith(`.${format}`)
-    ? filename
-    : `${filename}${transcriptExtension(format)}`;
+  a.download = name;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -120,26 +152,41 @@ function serializeJson(words: Word[], speakers: SpeakerInfo[]): string {
   );
 }
 
-function serializeDocument(
+function buildDocumentTurns(
   words: Word[],
-  format: TranscriptDocFormat,
   options: SerializeOptions
-): string {
+): DocumentTurn[] {
   const editedTimeline = options.editedTimeline !== false;
   const prepared = prepareCaptionWords(words, editedTimeline, options);
   if (prepared.length === 0) {
     throw new Error(en["error.noWords"]);
   }
 
-  const speakers = options.speakers ?? speakersFromWords(prepared);
-  const turns = groupWordsBySpeaker(prepared);
+  return groupWordsBySpeaker(prepared).map((turn) => ({
+    speaker: turn.speaker,
+    text: turn.words.map((w) => w.text).join(" "),
+    start: turn.words[0]?.start ?? 0,
+  }));
+}
+
+function serializeDocument(
+  words: Word[],
+  format: "txt" | "md",
+  options: SerializeOptions
+): string {
+  const speakers = options.speakers ?? speakersFromWords(words);
+  const turns = buildDocumentTurns(words, { ...options, speakers });
+  const withTs = Boolean(options.timestamps);
+
   if (format === "txt") {
     return (
       turns
         .map((turn) => {
           const label = speakerLabel(speakers, turn.speaker);
-          const text = turn.words.map((w) => w.text).join(" ");
-          return `${label}: ${text}`;
+          const prefix = withTs
+            ? `[${formatTranscriptTimestamp(turn.start)}] ${label}`
+            : label;
+          return `${prefix}: ${turn.text}`;
         })
         .join("\n\n") + "\n"
     );
@@ -149,11 +196,80 @@ function serializeDocument(
     turns
       .map((turn) => {
         const label = speakerLabel(speakers, turn.speaker);
-        const text = turn.words.map((w) => w.text).join(" ");
-        return `**${label}**\n\n${text}`;
+        const heading = withTs
+          ? `**[${formatTranscriptTimestamp(turn.start)}] ${label}**`
+          : `**${label}**`;
+        return `${heading}\n\n${turn.text}`;
       })
       .join("\n\n") + "\n"
   );
+}
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function serializeDocx(
+  turns: DocumentTurn[],
+  speakers: SpeakerInfo[],
+  timestamps?: boolean
+): Uint8Array {
+  const paragraphs = turns
+    .map((turn) => {
+      const label = speakerLabel(speakers, turn.speaker);
+      const heading = timestamps
+        ? `[${formatTranscriptTimestamp(turn.start)}] ${label}`
+        : label;
+      return [
+        // Speaker heading (bold)
+        `<w:p><w:pPr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${escapeXml(heading)}</w:t></w:r></w:p>`,
+        // Body
+        `<w:p><w:pPr><w:spacing w:after="240"/></w:pPr><w:r><w:t xml:space="preserve">${escapeXml(turn.text)}</w:t></w:r></w:p>`,
+      ].join("");
+    })
+    .join("");
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${paragraphs}
+    <w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
+  </w:body>
+</w:document>`;
+
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  return zipStore([
+    { path: "[Content_Types].xml", data: contentTypes },
+    { path: "_rels/.rels", data: rels },
+    { path: "word/document.xml", data: documentXml },
+  ]);
+}
+
+/** Compact turn timestamp for documents: `H:MM:SS` or `M:SS`. */
+export function formatTranscriptTimestamp(seconds: number): string {
+  const t = Math.max(0, seconds);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  if (h > 0) {
+    return `${h}:${pad(m, 2)}:${pad(s, 2)}`;
+  }
+  return `${m}:${pad(s, 2)}`;
 }
 
 function prepareCaptionWords(
@@ -279,4 +395,178 @@ function pad(n: number, width: number): string {
 
 function roundTime(t: number): number {
   return Math.round(t * 1000) / 1000;
+}
+
+// --- Minimal PDF (Helvetica / WinAnsi; non-encodable chars become "?") ---
+
+function pdfEscape(text: string): string {
+  return winAnsi(text)
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+/** Map Unicode to WinAnsi where possible; replace the rest. */
+function winAnsi(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code === 0x09 || code === 0x0a || code === 0x0d) {
+      out += " ";
+      continue;
+    }
+    if (code >= 0x20 && code <= 0x7e) {
+      out += ch;
+      continue;
+    }
+    // Common Latin-1 Supplement that WinAnsi covers (0xA0–0xFF, with gaps).
+    if (code >= 0xa0 && code <= 0xff) {
+      out += String.fromCharCode(code);
+      continue;
+    }
+    const mapped = WINANSI_MAP[code];
+    out += mapped ?? "?";
+  }
+  return out;
+}
+
+const WINANSI_MAP: Record<number, string> = {
+  0x2018: "'",
+  0x2019: "'",
+  0x201c: '"',
+  0x201d: '"',
+  0x2013: "-",
+  0x2014: "-",
+  0x2026: "...",
+  0x00a0: " ",
+};
+
+function wrapPdfLine(text: string, maxChars: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= maxChars) {
+      current = next;
+    } else {
+      if (current) lines.push(current);
+      if (word.length <= maxChars) {
+        current = word;
+      } else {
+        // Hard-break very long tokens.
+        for (let i = 0; i < word.length; i += maxChars) {
+          const chunk = word.slice(i, i + maxChars);
+          if (i + maxChars < word.length) lines.push(chunk);
+          else current = chunk;
+        }
+      }
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function serializePdf(
+  turns: DocumentTurn[],
+  speakers: SpeakerInfo[],
+  timestamps?: boolean
+): Uint8Array {
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const margin = 54;
+  const bodySize = 11;
+  const headSize = 12;
+  const lineHeight = 16;
+  const maxChars = 86;
+
+  type PdfLine = { text: string; bold: boolean };
+  const allLines: PdfLine[] = [];
+  for (const turn of turns) {
+    const label = speakerLabel(speakers, turn.speaker);
+    const heading = timestamps
+      ? `[${formatTranscriptTimestamp(turn.start)}] ${label}`
+      : label;
+    allLines.push({ text: heading, bold: true });
+    for (const line of wrapPdfLine(turn.text, maxChars)) {
+      allLines.push({ text: line, bold: false });
+    }
+    allLines.push({ text: "", bold: false });
+  }
+
+  const usableHeight = pageHeight - margin * 2;
+  const linesPerPage = Math.max(1, Math.floor(usableHeight / lineHeight));
+  const pages: PdfLine[][] = [];
+  for (let i = 0; i < allLines.length; i += linesPerPage) {
+    pages.push(allLines.slice(i, i + linesPerPage));
+  }
+  if (pages.length === 0) pages.push([]);
+
+  const objects: string[] = [];
+  const offsets: number[] = [0];
+
+  const addObject = (body: string): number => {
+    objects.push(body);
+    return objects.length;
+  };
+
+  // 1 Catalog, 2 Pages placeholder filled later, 3 Helvetica, 4 Helvetica-Bold
+  addObject("<< /Type /Catalog /Pages 2 0 R >>");
+  addObject("PLACEHOLDER_PAGES");
+  const fontReg = addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const fontBold = addObject(
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"
+  );
+
+  const pageObjectNumbers: number[] = [];
+
+  for (const pageLines of pages) {
+    const contentParts: string[] = ["BT"];
+    let y = pageHeight - margin;
+    let lastBold: boolean | null = null;
+    for (const line of pageLines) {
+      if (lastBold !== line.bold) {
+        contentParts.push(`/${line.bold ? "FBold" : "FReg"} ${line.bold ? headSize : bodySize} Tf`);
+        lastBold = line.bold;
+      }
+      contentParts.push(`1 0 0 1 ${margin} ${y} Tm (${pdfEscape(line.text)}) Tj`);
+      y -= lineHeight;
+    }
+    contentParts.push("ET");
+    const stream = contentParts.join("\n");
+    const streamObj = addObject(
+      `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`
+    );
+    const pageObj = addObject(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /FReg ${fontReg} 0 R /FBold ${fontBold} 0 R >> >> /Contents ${streamObj} 0 R >>`
+    );
+    pageObjectNumbers.push(pageObj);
+  }
+
+  objects[1] = `<< /Type /Pages /Kids [${pageObjectNumbers
+    .map((n) => `${n} 0 R`)
+    .join(" ")}] /Count ${pageObjectNumbers.length} >>`;
+
+  // Content is WinAnsi/ASCII, so string length == byte length.
+  const parts: string[] = ["%PDF-1.4\n"];
+  let cursor = parts[0].length;
+  offsets[0] = 0;
+  for (let i = 0; i < objects.length; i++) {
+    offsets[i + 1] = cursor;
+    const chunk = `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+    parts.push(chunk);
+    cursor += chunk.length;
+  }
+  const xrefPos = cursor;
+  let xref = `xref\n0 ${objects.length + 1}\n`;
+  xref += "0000000000 65535 f \n";
+  for (let i = 1; i <= objects.length; i++) {
+    xref += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  parts.push(xref);
+  parts.push(
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`
+  );
+  return new TextEncoder().encode(parts.join(""));
 }

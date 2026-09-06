@@ -7,6 +7,8 @@ import { resolve } from "path";
 import {
   buildNleTimeline,
   mediaFileUrl,
+  serializeReaperRpp,
+  serializeSamplitudeEdl,
   serializeTimelineXml,
   stripFcpxmlModDate,
 } from "../lib/serializeTimeline";
@@ -218,6 +220,63 @@ async function main() {
   );
   assert(xml.includes("<audio>"), "audio track present");
   console.log("audio-only xml: ok");
+}
+
+{
+  const rpp = serializeReaperRpp({
+    keepRanges: keeps,
+    duration: 5,
+    mediaFileName: "interview.mp4",
+    projectName: "Interview",
+    frameRate: "30",
+    withVideo: true,
+    withAudio: true,
+  });
+  assert(rpp.startsWith("<REAPER_PROJECT"), "rpp root");
+  assert(rpp.includes('<SOURCE VIDEO'), "rpp video source");
+  assert(rpp.includes('FILE "interview.mp4"'), "rpp media file");
+  assert(rpp.includes("SOFFS 0"), "rpp first source offset");
+  assert(rpp.includes("SOFFS 2"), "rpp second source offset");
+  assert(rpp.includes("POSITION 0"), "rpp first position");
+  assert(rpp.includes("POSITION 1"), "rpp second position after 1s clip");
+  assert(rpp.includes("LENGTH 1.5"), "rpp second length");
+  console.log("reaper rpp: ok");
+}
+
+{
+  const rpp = serializeReaperRpp({
+    keepRanges: keeps,
+    duration: 5,
+    mediaFileName: "podcast.mp3",
+    frameRate: "30",
+    withVideo: false,
+    withAudio: true,
+  });
+  assert(rpp.includes("<SOURCE MP3"), "rpp mp3 source");
+  console.log("reaper rpp audio: ok");
+}
+
+{
+  const edl = serializeSamplitudeEdl({
+    keepRanges: keeps,
+    duration: 5,
+    mediaFileName: "interview.mp4",
+    projectName: "Interview",
+    frameRate: "30",
+    withVideo: true,
+    withAudio: true,
+    audioRate: 48000,
+  });
+  assert(edl.startsWith("Samplitude EDL File Format Version 1.5"), "edl header");
+  assert(edl.includes('Title: "Interview"'), "edl title");
+  assert(edl.includes("Sample Rate: 48000"), "edl sample rate");
+  assert(edl.includes('1 "interview.mp4"'), "edl source table");
+  assert(edl.includes("Track 1:"), "edl track");
+  // First clip: play 0–48000, record 0–48000
+  assert(edl.includes("            0        48000            0        48000"), "edl clip 1 samples");
+  // Second clip starts at timeline sample 48000, source at 2s = 96000
+  assert(edl.includes("        48000       120000        96000       168000"), "edl clip 2 samples");
+  console.log("samplitude edl: ok");
 }
 
 {
