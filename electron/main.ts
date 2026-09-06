@@ -6,11 +6,12 @@ import {
   screen,
   shell,
   net,
+  session,
   type WebContents,
 } from "electron";
 import { join, normalize, extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { initMainSentry, setMainTelemetryEnabled } from "./sentry";
 import { initAutoUpdater } from "./updater";
 import {
@@ -128,6 +129,11 @@ function registerAppProtocol(): void {
     // headers() in next.config.ts for the non-export server).
     headers.set("Cross-Origin-Opener-Policy", "same-origin");
     headers.set("Cross-Origin-Embedder-Policy", "require-corp");
+    // Never serve a stale asar/wasm body after an in-app update. Chromium can
+    // cache net.fetch(file://) responses across quitAndInstall; a mixed set of
+    // old ffmpeg-core + new JS is what made "add media" hang until a clean
+    // install wiped the HTTP cache.
+    headers.set("Cache-Control", "no-store");
     const type = MIME[extname(filePath).toLowerCase()];
     if (type) headers.set("Content-Type", type);
     return new Response(response.body, {
@@ -136,6 +142,47 @@ function registerAppProtocol(): void {
       headers,
     });
   });
+}
+
+/**
+ * Drop Chromium's HTTP / code caches when the app version changes.
+ *
+ * electron-updater replaces the asar but leaves userData (and the session
+ * cache under it) alone. Without a bump check, a just-updated install can keep
+ * serving last version's wasm/JS until the user wipes the app — which matches
+ * "updater install hangs on add media; clean install of the same build works".
+ * IndexedDB project saves and localStorage prefs live outside this cache and
+ * are left alone.
+ */
+async function clearCachesIfUpdated(): Promise<void> {
+  const markerPath = join(app.getPath("userData"), "cache-version");
+  const version = app.getVersion();
+  let previous = "";
+  try {
+    previous = readFileSync(markerPath, "utf8").trim();
+  } catch {
+    // First launch (or marker deleted) — still clear once so a partial update
+    // recovery doesn't depend on the file already existing.
+  }
+  if (previous === version) return;
+  try {
+    await session.defaultSession.clearCache();
+    // clearCodeCaches landed in Electron 24+; keep a soft check so older
+    // shells still get the HTTP-cache wipe.
+    const ses = session.defaultSession as Electron.Session & {
+      clearCodeCaches?: (options: Record<string, never>) => Promise<void>;
+    };
+    if (typeof ses.clearCodeCaches === "function") {
+      await ses.clearCodeCaches({});
+    }
+  } catch (err) {
+    console.warn("Failed to clear session caches after update.", err);
+  }
+  try {
+    writeFileSync(markerPath, version, "utf8");
+  } catch (err) {
+    console.warn("Failed to write cache-version marker.", err);
+  }
 }
 
 /** Tracks each window's current mode so repeated requests are no-ops. */
@@ -368,9 +415,12 @@ if (!gotLock) {
     quitting = true;
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     setDesktopLocale(resolveDesktopLocale(app.getLocale()));
-    if (!isDev) registerAppProtocol();
+    if (!isDev) {
+      await clearCachesIfUpdated();
+      registerAppProtocol();
+    }
     buildAppMenu(dispatchMenuCommand);
     createWindow();
     initAutoUpdater();
