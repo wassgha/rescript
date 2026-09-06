@@ -3,6 +3,7 @@
  * Run: npx tsx tests/serialize-transcript-test.ts
  */
 import { parseTranscript } from "../lib/parseTranscript";
+import { replaceSpeaker } from "../lib/speakers";
 import {
   formatSrtTimestamp,
   formatTranscriptTimestamp,
@@ -58,6 +59,60 @@ const sample: Word[] = [
   assert(srt.includes("Alice: Hello world"), `named srt\n${srt}`);
   assert(srt.includes("Bob: How are you"), `named srt 2\n${srt}`);
   console.log("srt named speakers: ok");
+}
+
+{
+  // Project-wide rename keeps custom labels in every document format even when
+  // word speaker ids are unchanged (the rename-only store path).
+  const renamed = [
+    { id: 0, name: "wassgha" },
+    { id: 1, name: "Speaker 2" },
+  ];
+  for (const fmt of ["txt", "md", "srt"] as const) {
+    const out = serializeTranscript(sample, fmt, {
+      duration: 10,
+      speakers: renamed,
+    });
+    assert(out.includes("wassgha"), `${fmt} rename export\n${out}`);
+    assert(!/Speaker 1/.test(out), `${fmt} must not keep default name\n${out}`);
+  }
+  const docx = new TextDecoder().decode(
+    serializeTranscriptBinary(sample, "docx", {
+      duration: 10,
+      speakers: renamed,
+    })
+  );
+  assert(docx.includes("wassgha"), "docx rename export");
+  assert(!docx.includes("Speaker 1"), "docx must not keep default name");
+  console.log("rename-in-export: ok");
+}
+
+{
+  // Replace-in-project merges ids; export must use the surviving speaker's name
+  // (not a rebuilt "Speaker N" default).
+  const words: Word[] = [
+    { id: 0, text: "Hello", start: 0, end: 1, speaker: 0, deleted: false },
+    { id: 1, text: "there", start: 1, end: 2, speaker: 0, deleted: false },
+    { id: 2, text: "Friend", start: 3, end: 4, speaker: 1, deleted: false },
+  ];
+  const merged = replaceSpeaker(
+    words,
+    [
+      { id: 0, name: "Speaker 1" },
+      { id: 1, name: "wassgha" },
+    ],
+    0,
+    1
+  );
+  assert(merged !== null, "replace merge");
+  const txt = serializeTranscript(merged!.words, "txt", {
+    duration: 5,
+    speakers: merged!.speakers,
+  });
+  assert(txt.includes("wassgha"), `replace export\n${txt}`);
+  assert(!/Speaker 1/.test(txt), `replace must not keep Speaker 1\n${txt}`);
+  assert(!/Speaker 2/.test(txt), `replace must not rebuild defaults\n${txt}`);
+  console.log("replace-in-export: ok");
 }
 
 {

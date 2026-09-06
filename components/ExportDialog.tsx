@@ -12,7 +12,7 @@ import {
 import { useEditorStore } from "@/lib/store";
 import { reportError } from "@/lib/sentry";
 import { trackEvent } from "@/lib/telemetry";
-import { formatTime, getEditedDuration, getKeepRanges } from "@/lib/edits";
+import { formatTime, getCutRanges, getEditedDuration, getKeepRanges } from "@/lib/edits";
 import {
   exportAudio,
   exportVideo,
@@ -24,6 +24,7 @@ import {
   downloadTranscript,
   type TranscriptFormat,
 } from "@/lib/serializeTranscript";
+import { speakersFromWords } from "@/lib/speakers";
 import {
   downloadTimelineExport,
   TIMELINE_FORMATS,
@@ -96,7 +97,6 @@ export default function ExportDialog() {
   const mediaKind = useEditorStore((s) => s.mediaKind);
   const duration = useEditorStore((s) => s.duration);
   const words = useEditorStore((s) => s.words);
-  const speakers = useEditorStore((s) => s.speakers);
   const hasAudioTrack = useEditorStore((s) => s.hasAudio);
   const status = useEditorStore((s) => s.status);
   const setStatus = useEditorStore((s) => s.setStatus);
@@ -271,12 +271,16 @@ export default function ExportDialog() {
   const textSupportsTimestamps = DOC_FORMATS.has(textFormat);
 
   const exportText = useCallback(() => {
-    if (!hasWords) return;
+    // Read live store state at click time so a rename / replace-in-project
+    // that landed while this dialog was mounted can't export a stale snapshot.
+    const s = useEditorStore.getState();
+    if (s.words.length === 0) return;
+    const liveCuts = getCutRanges(s.words, s.duration, s.manualCuts);
     try {
-      downloadTranscript(words, textFormat, baseName, {
-        duration,
-        cuts,
-        speakers,
+      downloadTranscript(s.words, textFormat, baseName, {
+        duration: s.duration,
+        cuts: liveCuts,
+        speakers: speakersFromWords(s.words, s.speakers),
         ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
       });
       setError(null);
@@ -289,15 +293,10 @@ export default function ExportDialog() {
       setError(err instanceof Error ? err.message : en["error.export"]);
     }
   }, [
-    hasWords,
-    words,
-    speakers,
     textFormat,
     textSupportsTimestamps,
     includeTimestamps,
     baseName,
-    duration,
-    cuts,
   ]);
 
   const exportTimeline = useCallback(async () => {

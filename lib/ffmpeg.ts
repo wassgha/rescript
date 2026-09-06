@@ -35,6 +35,9 @@ const COPY_INPUT_MAX_BYTES = 256 * 1024 * 1024;
  */
 const EXEC_STALL_TIMEOUT_MS = 120_000;
 
+/** How long `ffmpeg.load` may take before we treat the core as wedged. */
+const LOAD_TIMEOUT_MS = 60_000;
+
 let ffmpegPromise: Promise<FFmpeg> | null = null;
 let writtenFor: File | null = null;
 /** Path `writtenFor`'s media is readable at, and whether it came from a mount. */
@@ -66,13 +69,46 @@ export async function getFFmpeg(): Promise<FFmpeg> {
         throw new Error(en["error.simdUnsupported"]);
       }
       const ffmpeg = new FFmpeg();
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm"),
-        workerURL: await toBlobURL(`${CORE_BASE}/ffmpeg-core.worker.js`, "text/javascript"),
-        // Served same-origin (copied on postinstall): the bundled class worker
-        // contains a dynamic import() that Next's bundler cannot handle.
-        classWorkerURL: new URL("/vendor/ffmpeg-class/worker.js", location.href).href,
+      const coreURL = await toBlobURL(
+        `${CORE_BASE}/ffmpeg-core.js`,
+        "text/javascript"
+      );
+      const wasmURL = await toBlobURL(
+        `${CORE_BASE}/ffmpeg-core.wasm`,
+        "application/wasm"
+      );
+      const workerURL = await toBlobURL(
+        `${CORE_BASE}/ffmpeg-core.worker.js`,
+        "text/javascript"
+      );
+      // A corrupt / stale cached wasm (common right after an in-app update
+      // before the session cache is cleared) makes `load` hang forever, which
+      // looked like the app freezing on "add media". Bound it so the user gets
+      // an error they can recover from instead of an endless spinner.
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error(en["error.mediaEngineStalled"]));
+        }, LOAD_TIMEOUT_MS);
+        ffmpeg
+          .load({
+            coreURL,
+            wasmURL,
+            workerURL,
+            // Served same-origin (copied on postinstall): the bundled class worker
+            // contains a dynamic import() that Next's bundler cannot handle.
+            classWorkerURL: new URL(
+              "/vendor/ffmpeg-class/worker.js",
+              location.href
+            ).href,
+          })
+          .then(() => {
+            clearTimeout(timer);
+            resolve();
+          })
+          .catch((err: unknown) => {
+            clearTimeout(timer);
+            reject(err);
+          });
       });
       return ffmpeg;
     })();
