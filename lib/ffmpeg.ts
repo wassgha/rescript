@@ -101,45 +101,56 @@ async function loadFFmpegInstance(kind: FFmpegCoreKind): Promise<FFmpeg> {
   }
   const base = CORE_BASE[kind];
   const ffmpeg = new FFmpeg();
-  const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript");
-  const wasmURL = await toBlobURL(
-    `${base}/ffmpeg-core.wasm`,
-    "application/wasm"
-  );
-  // Only the multi-threaded build ships a pthread worker.
-  const workerURL =
-    kind === "mt"
-      ? await toBlobURL(`${base}/ffmpeg-core.worker.js`, "text/javascript")
-      : undefined;
-  // A corrupt / stale cached wasm (common right after an in-app update
-  // before the session cache is cleared) makes `load` hang forever, which
-  // looked like the app freezing on "add media". Bound it so the user gets
-  // an error they can recover from instead of an endless spinner.
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(en["error.mediaEngineStalled"]));
-    }, LOAD_TIMEOUT_MS);
-    ffmpeg
-      .load({
-        coreURL,
-        wasmURL,
-        ...(workerURL ? { workerURL } : {}),
-        // Served same-origin (copied on postinstall): the bundled class worker
-        // contains a dynamic import() that Next's bundler cannot handle.
-        classWorkerURL: new URL(
-          "/vendor/ffmpeg-class/worker.js",
-          location.href
-        ).href,
-      })
-      .then(() => {
-        clearTimeout(timer);
-        resolve();
-      })
-      .catch((err: unknown) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
+  try {
+    const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript");
+    const wasmURL = await toBlobURL(
+      `${base}/ffmpeg-core.wasm`,
+      "application/wasm"
+    );
+    // Only the multi-threaded build ships a pthread worker.
+    const workerURL =
+      kind === "mt"
+        ? await toBlobURL(`${base}/ffmpeg-core.worker.js`, "text/javascript")
+        : undefined;
+    // A corrupt / stale cached wasm (common right after an in-app update
+    // before the session cache is cleared) makes `load` hang forever, which
+    // looked like the app freezing on "add media". Bound it so the user gets
+    // an error they can recover from instead of an endless spinner.
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(en["error.mediaEngineStalled"]));
+      }, LOAD_TIMEOUT_MS);
+      ffmpeg
+        .load({
+          coreURL,
+          wasmURL,
+          ...(workerURL ? { workerURL } : {}),
+          // Served same-origin (copied on postinstall): the bundled class worker
+          // contains a dynamic import() that Next's bundler cannot handle.
+          classWorkerURL: new URL(
+            "/vendor/ffmpeg-class/worker.js",
+            location.href
+          ).href,
+        })
+        .then(() => {
+          clearTimeout(timer);
+          resolve();
+        })
+        .catch((err: unknown) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  } catch (err) {
+    // Drop a half-started class worker before the MT→ST fallback retries,
+    // otherwise the failed attempt keeps whatever it allocated.
+    try {
+      ffmpeg.terminate();
+    } catch {
+      // Already gone.
+    }
+    throw err;
+  }
   return ffmpeg;
 }
 
