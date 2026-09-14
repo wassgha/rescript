@@ -48,6 +48,19 @@ interface DocumentTurn {
 
 /** Split a cue when the gap between consecutive words exceeds this (seconds). */
 const CUE_GAP = 0.75;
+/**
+ * Max on-screen duration for one caption cue (seconds). Continuous speech with
+ * no long pause used to become a single 60s+ cue; broadcast style guides cap
+ * events around 7s (e.g. Netflix timed-text).
+ */
+const MAX_CUE_DURATION = 7;
+/**
+ * Soft max characters of dialogue in one cue (≈ two 42-char lines). Keeps
+ * exported SRT/VTT from dumping a whole paragraph onto the video frame.
+ */
+const MAX_CUE_CHARS = 84;
+/** Preferred line width when wrapping cue text for display. */
+const CUE_LINE_CHARS = 42;
 
 const MIME: Record<TranscriptFormat, string> = {
   srt: "application/x-subrip",
@@ -301,6 +314,13 @@ function isWordKept(word: Word, cuts: TimeRange[]): boolean {
   return !cuts.some((c) => mid >= c.start && mid < c.end);
 }
 
+/**
+ * Group timed words into short caption cues.
+ *
+ * Splits on speaker change, pause gaps, sentence-ending punctuation, and hard
+ * caps on duration / character count so continuous speech cannot produce a
+ * single multi-line block that overflows the video frame.
+ */
 function wordsToCues(words: Word[]): Cue[] {
   const cues: Cue[] = [];
   let batch: Word[] = [];
@@ -316,18 +336,70 @@ function wordsToCues(words: Word[]): Cue[] {
     batch = [];
   };
 
+  const wouldOverflow = (next: Word): boolean => {
+    if (batch.length === 0) return false;
+    const text = `${batch.map((w) => w.text).join(" ")} ${next.text}`;
+    const duration = next.end - batch[0].start;
+    return text.length > MAX_CUE_CHARS || duration > MAX_CUE_DURATION;
+  };
+
   for (const w of words) {
     const last = batch[batch.length - 1];
-    if (
-      last &&
-      (w.speaker !== last.speaker || w.start - last.end > CUE_GAP)
-    ) {
-      flush();
+    if (last) {
+      const speakerOrGap =
+        w.speaker !== last.speaker || w.start - last.end > CUE_GAP;
+      if (speakerOrGap || wouldOverflow(w)) {
+        flush();
+      }
     }
     batch.push(w);
+    // Prefer a new cue after each sentence so timestamps stay line/sentence sized.
+    if (endsSentence(w.text)) flush();
   }
   flush();
   return cues;
+}
+
+/** True when a word looks like the end of a sentence (ASR usually keeps the mark). */
+function endsSentence(text: string): boolean {
+  return /[.!?…。？！]["'"”’」』】）)\]]*$/u.test(text.trim());
+}
+
+/**
+ * Wrap cue dialogue for on-screen display (≈42 chars × 2 lines). Speaker labels
+ * stay on the first line only.
+ */
+function formatCueBody(text: string, speakerPrefix?: string): string {
+  const wrapped = wrapCueLines(text, CUE_LINE_CHARS);
+  if (!speakerPrefix) return wrapped.join("\n");
+  if (wrapped.length === 0) return speakerPrefix.trimEnd();
+  return [`${speakerPrefix}${wrapped[0]}`, ...wrapped.slice(1)].join("\n");
+}
+
+function wrapCueLines(text: string, maxChars: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= maxChars) {
+      current = next;
+      continue;
+    }
+    if (current) lines.push(current);
+    if (word.length <= maxChars) {
+      current = word;
+    } else {
+      for (let i = 0; i < word.length; i += maxChars) {
+        const chunk = word.slice(i, i + maxChars);
+        if (i + maxChars < word.length) lines.push(chunk);
+        else current = chunk;
+      }
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
 }
 
 function serializeSrt(cues: Cue[], speakers: SpeakerInfo[]): string {
@@ -339,9 +411,11 @@ function serializeSrt(cues: Cue[], speakers: SpeakerInfo[]): string {
           `${formatSrtTimestamp(cue.start)} --> ${formatSrtTimestamp(cue.end)}`,
         ];
         if (cue.speaker >= 0) {
-          lines.push(`${speakerLabel(speakers, cue.speaker)}: ${cue.text}`);
+          lines.push(
+            formatCueBody(cue.text, `${speakerLabel(speakers, cue.speaker)}: `)
+          );
         } else {
-          lines.push(cue.text);
+          lines.push(formatCueBody(cue.text));
         }
         return lines.join("\n");
       })
@@ -353,10 +427,11 @@ function serializeVtt(cues: Cue[], speakers: SpeakerInfo[]): string {
   const body = cues
     .map((cue) => {
       const timing = `${formatVttTimestamp(cue.start)} --> ${formatVttTimestamp(cue.end)}`;
+      const wrapped = wrapCueLines(cue.text, CUE_LINE_CHARS).join("\n");
       const text =
         cue.speaker >= 0
-          ? `<v ${speakerLabel(speakers, cue.speaker)}>${cue.text}`
-          : cue.text;
+          ? `<v ${speakerLabel(speakers, cue.speaker)}>${wrapped}`
+          : wrapped;
       return `${timing}\n${text}`;
     })
     .join("\n\n");

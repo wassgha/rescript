@@ -308,4 +308,103 @@ const sample: Word[] = [
   console.log("manual cuts: ok");
 }
 
+{
+  // Sentence-ending punctuation starts a new cue even when the pause is short.
+  const words: Word[] = [
+    { id: 0, text: "Hello", start: 0, end: 0.4, speaker: 0, deleted: false },
+    { id: 1, text: "world.", start: 0.4, end: 0.8, speaker: 0, deleted: false },
+    { id: 2, text: "How", start: 0.9, end: 1.1, speaker: 0, deleted: false },
+    { id: 3, text: "are", start: 1.1, end: 1.3, speaker: 0, deleted: false },
+    { id: 4, text: "you?", start: 1.3, end: 1.6, speaker: 0, deleted: false },
+  ];
+  const srt = serializeTranscript(words, "srt", {
+    editedTimeline: false,
+    duration: 5,
+  });
+  assert(srt.includes("Speaker 1: Hello world."), `sentence cue 1\n${srt}`);
+  assert(srt.includes("Speaker 1: How are you?"), `sentence cue 2\n${srt}`);
+  assert(srt.includes("1\n") && srt.includes("2\n"), `two cues\n${srt}`);
+  console.log("sentence cue split: ok");
+}
+
+{
+  // Continuous speech without long pauses must not become one huge cue.
+  const words: Word[] = [];
+  for (let i = 0; i < 80; i++) {
+    const start = i * 0.4;
+    words.push({
+      id: i,
+      text: `w${i}`,
+      start,
+      end: start + 0.35,
+      speaker: 0,
+      deleted: false,
+    });
+  }
+  const srt = serializeTranscript(words, "srt", {
+    editedTimeline: false,
+    duration: 40,
+  });
+  const blocks = srt.trim().split(/\n\n+/);
+  assert(blocks.length >= 4, `expected several cues, got ${blocks.length}\n${srt}`);
+  for (const block of blocks) {
+    const match = block.match(
+      /(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})/
+    );
+    assert(match !== null, `missing timing in cue\n${block}`);
+    const toSec = (h: string, m: string, s: string, ms: string) =>
+      Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms) / 1000;
+    const dur =
+      toSec(match![5], match![6], match![7], match![8]) -
+      toSec(match![1], match![2], match![3], match![4]);
+    assert(dur <= 7.05, `cue longer than 7s (${dur})\n${block}`);
+  }
+  console.log("max cue duration: ok");
+}
+
+{
+  // Character cap + line wrap: a long run without punctuation still yields short cues.
+  const tokens = [
+    "The",
+    "quick",
+    "brown",
+    "fox",
+    "jumps",
+    "over",
+    "the",
+    "lazy",
+    "dog",
+    "again",
+    "today",
+    "while",
+    "everyone",
+    "watches",
+    "quietly",
+  ];
+  const words: Word[] = tokens.map((text, i) => ({
+    id: i,
+    text,
+    start: i * 0.25,
+    end: i * 0.25 + 0.2,
+    speaker: 0,
+    deleted: false,
+  }));
+  const srt = serializeTranscript(words, "srt", {
+    editedTimeline: false,
+    duration: 10,
+  });
+  const blocks = srt.trim().split(/\n\n+/);
+  assert(blocks.length >= 2, `char cap should split cues\n${srt}`);
+  for (const block of blocks) {
+    const body = block.split("\n").slice(2).join("\n");
+    // Strip speaker prefix on the first body line for the length check.
+    const dialogue = body.replace(/^Speaker \d+: /, "").replace(/\n/g, " ");
+    assert(
+      dialogue.length <= 90,
+      `cue dialogue too long (${dialogue.length})\n${block}`
+    );
+  }
+  console.log("max cue chars: ok");
+}
+
 console.log("ALL SERIALIZE TRANSCRIPT TESTS PASSED");
