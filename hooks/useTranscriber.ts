@@ -67,6 +67,13 @@ export function useTranscriber() {
             model,
             language: transcriptLanguage,
           });
+          // Drop the worker (and its ORT heaps) before the user exports.
+          // Every transcribe() already starts a fresh worker, so keeping this
+          // one alive only competes with ffmpeg.wasm for renderer memory —
+          // especially painful in Electron, where a second 1 GiB core load
+          // after ASR is what made "ffmpeg not starting" show up on export.
+          cancelTranscription();
+          workerRef.current = null;
           break;
         case "error":
           s.setError(msg.message);

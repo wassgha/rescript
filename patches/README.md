@@ -105,5 +105,13 @@ This covers the class worker dying. A trap inside a nested emscripten pthread
 does not bubble to the parent `Worker`, so `lib/ffmpeg.ts` also runs a liveness
 watchdog over `exec()`; see the comment on `execWithWatchdog` there.
 
+**Follow-up (export memory).** The watchdog stops the hang; it does not raise
+the 1 GiB ceiling. Video/audio export now loads the single-threaded
+`@ffmpeg/core` (growable up to 2 GiB) from `/vendor/ffmpeg-st/`, while audio
+extraction still prefers `@ffmpeg/core-mt` and falls back to the growable core
+when the 1 GiB `SharedArrayBuffer` cannot be reserved. That is what made
+desktop-app 1080p/original export fail with "ffmpeg not starting" while the
+same project exported in the browser.
+
 **Upstreaming.** Worth a PR — this is a bug in any consumer, not something
 specific to Rescript.

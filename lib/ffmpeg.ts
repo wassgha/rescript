@@ -5,7 +5,23 @@ import { en } from "@/lib/i18n/messages/en";
 import { hasWasmSimd } from "@/lib/wasmFeatures";
 import type { TimeRange } from "./types";
 
-const CORE_BASE = "/vendor/ffmpeg";
+/**
+ * Which ffmpeg.wasm core binary to load.
+ *
+ * - `"mt"` — `@ffmpeg/core-mt`: multi-threaded, fixed 1 GiB shared heap.
+ *   Faster, but the heap is committed up front and cannot grow, so 1080p /
+ *   original exports reliably OOM (or fail to instantiate under Electron
+ *   memory pressure after ASR). Companion to the hang-watchdog in PR #92.
+ * - `"st"` — `@ffmpeg/core`: single-threaded, growable 32 MiB → 2 GiB.
+ *   Slower encode, but the headroom that high-res export needs.
+ */
+export type FFmpegCoreKind = "mt" | "st";
+
+const CORE_BASE: Record<FFmpegCoreKind, string> = {
+  mt: "/vendor/ffmpeg",
+  st: "/vendor/ffmpeg-st",
+};
+
 const INPUT_NAME = "input_video";
 const MOUNT_DIR = "/mnt_input";
 
@@ -39,96 +55,158 @@ const EXEC_STALL_TIMEOUT_MS = 120_000;
 const LOAD_TIMEOUT_MS = 60_000;
 
 let ffmpegPromise: Promise<FFmpeg> | null = null;
+/** Which core `ffmpegPromise` resolved (or is resolving) to. */
+let loadedKind: FFmpegCoreKind | null = null;
 let writtenFor: File | null = null;
 /** Path `writtenFor`'s media is readable at, and whether it came from a mount. */
 let inputPath = INPUT_NAME;
 let inputMounted = false;
 
-/** Lazily load a singleton multi-threaded ffmpeg.wasm instance. */
-export async function getFFmpeg(): Promise<FFmpeg> {
-  if (!ffmpegPromise) {
-    ffmpegPromise = (async () => {
-      const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
-        import("@ffmpeg/ffmpeg"),
-        import("@ffmpeg/util"),
-      ]);
-      // Multi-threaded ffmpeg.wasm needs SharedArrayBuffer, i.e. a
-      // cross-origin-isolated page (COOP/COEP from vercel.json on the web, from
-      // the app:// handler in Electron). Without it the core throws a bare
-      // "SharedArrayBuffer is not defined" from deep inside the worker.
-      if (!self.crossOriginIsolated || typeof SharedArrayBuffer === "undefined") {
-        throw new Error(en["error.mediaEngineNotReady"]);
-      }
-      // ffmpeg-core is a SIMD build, so on an engine without it the core fails
-      // to compile — as an emscripten abort() wrapping "CompileError:
-      // ... Wasm SIMD unsupported", which reaches the caller as an opaque
-      // string and ends up shown as the generic "Failed to process this file."
-      // Check first so the message names the actual problem. UploadScreen gates
-      // on the same check, so this only fires if support changed underneath us.
-      if (!hasWasmSimd()) {
-        throw new Error(en["error.simdUnsupported"]);
-      }
-      const ffmpeg = new FFmpeg();
-      const coreURL = await toBlobURL(
-        `${CORE_BASE}/ffmpeg-core.js`,
-        "text/javascript"
-      );
-      const wasmURL = await toBlobURL(
-        `${CORE_BASE}/ffmpeg-core.wasm`,
-        "application/wasm"
-      );
-      const workerURL = await toBlobURL(
-        `${CORE_BASE}/ffmpeg-core.worker.js`,
-        "text/javascript"
-      );
-      // A corrupt / stale cached wasm (common right after an in-app update
-      // before the session cache is cleared) makes `load` hang forever, which
-      // looked like the app freezing on "add media". Bound it so the user gets
-      // an error they can recover from instead of an endless spinner.
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error(en["error.mediaEngineStalled"]));
-        }, LOAD_TIMEOUT_MS);
-        ffmpeg
-          .load({
-            coreURL,
-            wasmURL,
-            workerURL,
-            // Served same-origin (copied on postinstall): the bundled class worker
-            // contains a dynamic import() that Next's bundler cannot handle.
-            classWorkerURL: new URL(
-              "/vendor/ffmpeg-class/worker.js",
-              location.href
-            ).href,
-          })
-          .then(() => {
-            clearTimeout(timer);
-            resolve();
-          })
-          .catch((err: unknown) => {
-            clearTimeout(timer);
-            reject(err);
-          });
-      });
-      return ffmpeg;
-    })();
-    ffmpegPromise.catch(() => {
-      ffmpegPromise = null;
-    });
+/** Public asset directory for a core kind — exported for tests / copy-assets. */
+export function coreAssetBase(kind: FFmpegCoreKind): string {
+  return CORE_BASE[kind];
+}
+
+/**
+ * Core used for video/audio export. Always the growable single-threaded build:
+ * the multi-threaded 1 GiB ceiling is what made 1080p/original fail in the
+ * desktop app (and hang before the PR #92 watchdog).
+ */
+export function exportCoreKind(): FFmpegCoreKind {
+  return "st";
+}
+
+async function loadFFmpegInstance(kind: FFmpegCoreKind): Promise<FFmpeg> {
+  const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
+    import("@ffmpeg/ffmpeg"),
+    import("@ffmpeg/util"),
+  ]);
+  // Multi-threaded ffmpeg.wasm needs SharedArrayBuffer, i.e. a
+  // cross-origin-isolated page (COOP/COEP from vercel.json on the web, from
+  // the app:// handler in Electron). Without it the core throws a bare
+  // "SharedArrayBuffer is not defined" from deep inside the worker. The
+  // single-threaded core does not need SAB for pthreads, but the rest of the
+  // editor (ORT) still does, and UploadScreen already gates on isolation.
+  if (!self.crossOriginIsolated || typeof SharedArrayBuffer === "undefined") {
+    throw new Error(en["error.mediaEngineNotReady"]);
   }
+  // Both cores are SIMD builds, so on an engine without it they fail to
+  // compile — as an emscripten abort() wrapping "CompileError: ... Wasm SIMD
+  // unsupported", which reaches the caller as an opaque string and ends up
+  // shown as the generic "Failed to process this file." Check first so the
+  // message names the actual problem. UploadScreen gates on the same check,
+  // so this only fires if support changed underneath us.
+  if (!hasWasmSimd()) {
+    throw new Error(en["error.simdUnsupported"]);
+  }
+  const base = CORE_BASE[kind];
+  const ffmpeg = new FFmpeg();
+  try {
+    const coreURL = await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript");
+    const wasmURL = await toBlobURL(
+      `${base}/ffmpeg-core.wasm`,
+      "application/wasm"
+    );
+    // Only the multi-threaded build ships a pthread worker.
+    const workerURL =
+      kind === "mt"
+        ? await toBlobURL(`${base}/ffmpeg-core.worker.js`, "text/javascript")
+        : undefined;
+    // A corrupt / stale cached wasm (common right after an in-app update
+    // before the session cache is cleared) makes `load` hang forever, which
+    // looked like the app freezing on "add media". Bound it so the user gets
+    // an error they can recover from instead of an endless spinner.
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(en["error.mediaEngineStalled"]));
+      }, LOAD_TIMEOUT_MS);
+      ffmpeg
+        .load({
+          coreURL,
+          wasmURL,
+          ...(workerURL ? { workerURL } : {}),
+          // Served same-origin (copied on postinstall): the bundled class worker
+          // contains a dynamic import() that Next's bundler cannot handle.
+          classWorkerURL: new URL(
+            "/vendor/ffmpeg-class/worker.js",
+            location.href
+          ).href,
+        })
+        .then(() => {
+          clearTimeout(timer);
+          resolve();
+        })
+        .catch((err: unknown) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  } catch (err) {
+    // Drop a half-started class worker before the MT→ST fallback retries,
+    // otherwise the failed attempt keeps whatever it allocated.
+    try {
+      ffmpeg.terminate();
+    } catch {
+      // Already gone.
+    }
+    throw err;
+  }
+  return ffmpeg;
+}
+
+/**
+ * Lazily load a singleton ffmpeg.wasm instance.
+ *
+ * `kind` selects the core binary. If a different kind is already loaded it is
+ * terminated first. Requesting `"mt"` falls back to `"st"` when the fixed 1 GiB
+ * shared heap cannot be allocated — the failure mode Discord reported as
+ * "ffmpeg not starting" in the desktop app after transcription.
+ */
+export async function getFFmpeg(kind: FFmpegCoreKind = "mt"): Promise<FFmpeg> {
+  // A growable ST instance already satisfies any MT request, and swapping back
+  // to MT would re-introduce the 1 GiB allocation that may have just failed.
+  if (ffmpegPromise && (loadedKind === kind || loadedKind === "st")) {
+    return ffmpegPromise;
+  }
+  if (ffmpegPromise) {
+    await releaseFFmpeg();
+  }
+
+  const requested = kind;
+  loadedKind = requested;
+  ffmpegPromise = (async () => {
+    try {
+      return await loadFFmpegInstance(requested);
+    } catch (err) {
+      if (requested !== "mt") throw err;
+      // MT instantiate failed (typically can't reserve the 1 GiB SharedArrayBuffer).
+      // Hand the half-built worker back and retry with the growable core.
+      console.warn(
+        "Multi-threaded ffmpeg core failed to load; retrying single-threaded.",
+        err
+      );
+      loadedKind = "st";
+      return await loadFFmpegInstance("st");
+    }
+  })();
+  ffmpegPromise.catch(() => {
+    ffmpegPromise = null;
+    loadedKind = null;
+  });
   return ffmpegPromise;
 }
 
 /**
  * Terminate the ffmpeg worker and hand its heap back to the browser.
  *
- * ffmpeg-core is built with INITIAL_MEMORY === MAXIMUM_MEMORY === 1 GiB on a
- * shared WebAssembly.Memory, so the full gigabyte is committed the moment the
- * core instantiates and never shrinks — deleting MEMFS files frees nothing.
- * Held across transcription it sits alongside onnxruntime's heap, the model
- * weights and the decoded PCM, and WebKit kills the tab for it ("This webpage
- * was reloaded because it was using significant memory"). Nothing needs ffmpeg
- * between audio extraction and export, so drop it there and pay one re-init.
+ * The multi-threaded core is built with INITIAL_MEMORY === MAXIMUM_MEMORY ===
+ * 1 GiB on a shared WebAssembly.Memory, so the full gigabyte is committed the
+ * moment the core instantiates and never shrinks — deleting MEMFS files frees
+ * nothing. Held across transcription it sits alongside onnxruntime's heap, the
+ * model weights and the decoded PCM, and WebKit kills the tab for it ("This
+ * webpage was reloaded because it was using significant memory"). Nothing needs
+ * ffmpeg between audio extraction and export, so drop it there and pay one
+ * re-init (export then loads the growable single-threaded core).
  */
 export async function releaseFFmpeg(): Promise<void> {
   const pending = ffmpegPromise;
@@ -136,6 +214,7 @@ export async function releaseFFmpeg(): Promise<void> {
   // Clear first so a concurrent getFFmpeg() builds a fresh instance rather than
   // handing out the one we are about to terminate.
   ffmpegPromise = null;
+  loadedKind = null;
   writtenFor = null;
   // The worker owns the filesystem, so its mounts and MEMFS files die with it.
   inputMounted = false;
@@ -287,7 +366,9 @@ async function ensureInput(ffmpeg: FFmpeg, file: File): Promise<string> {
  * has no audio track — those still open for editing with an empty transcript.
  */
 export async function extractAudio(file: File): Promise<Float32Array | null> {
-  const ffmpeg = await getFFmpeg();
+  // Prefer the multi-threaded core for decode speed; getFFmpeg falls back to
+  // the growable single-threaded build if the 1 GiB shared heap won't allocate.
+  const ffmpeg = await getFFmpeg("mt");
   const input = await ensureInput(ffmpeg, file);
   const out = "audio.pcm";
   let sawAudioStream = false;
@@ -378,7 +459,9 @@ export async function exportVideo(
   if (keepRanges.length === 0) {
     throw new Error(en["error.nothingToExport"]);
   }
-  const ffmpeg = await getFFmpeg();
+  // Growable heap: the MT core's fixed 1 GiB is what failed 1080p/original
+  // exports (Discord: "ffmpeg not starting" in the desktop app; browser OK).
+  const ffmpeg = await getFFmpeg(exportCoreKind());
   const input = await ensureInput(ffmpeg, file);
   const out = format === "webm" ? "output.webm" : "output.mp4";
   const scale = scaleFilter(resolution);
@@ -464,7 +547,7 @@ export async function exportAudio(
   if (keepRanges.length === 0) {
     throw new Error(en["error.nothingToExport"]);
   }
-  const ffmpeg = await getFFmpeg();
+  const ffmpeg = await getFFmpeg(exportCoreKind());
   const input = await ensureInput(ffmpeg, file);
   const out =
     format === "mp3" ? "output.mp3" : format === "wav" ? "output.wav" : "output.m4a";
