@@ -113,6 +113,7 @@ export default function ExportDialog() {
   const [textFormat, setTextFormat] = useState<TranscriptFormat>("txt");
   const [includeTimestamps, setIncludeTimestamps] = useState(false);
   const [shortCues, setShortCues] = useState(true);
+  const [speakerLabels, setSpeakerLabels] = useState(true);
   const [timelineFormat, setTimelineFormat] =
     useState<TimelineExportFormat>("resolve");
   const [timelineFrameRate, setTimelineFrameRate] =
@@ -273,6 +274,7 @@ export default function ExportDialog() {
 
   const textSupportsTimestamps = DOC_FORMATS.has(textFormat);
   const textSupportsShortCues = SUBTITLE_FORMATS.has(textFormat);
+  const textSupportsSpeakerLabels = textFormat !== "json";
 
   const exportText = useCallback(() => {
     // Read live store state at click time so a rename / replace-in-project
@@ -287,6 +289,7 @@ export default function ExportDialog() {
         speakers: speakersFromWords(s.words, s.speakers),
         ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
         ...(textSupportsShortCues ? { shortCues } : {}),
+        ...(textSupportsSpeakerLabels ? { speakerLabels } : {}),
       });
       setError(null);
       trackEvent("export_completed", {
@@ -294,6 +297,7 @@ export default function ExportDialog() {
         format: textFormat,
         ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
         ...(textSupportsShortCues ? { shortCues } : {}),
+        ...(textSupportsSpeakerLabels ? { speakerLabels } : {}),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : en["error.export"]);
@@ -302,8 +306,10 @@ export default function ExportDialog() {
     textFormat,
     textSupportsTimestamps,
     textSupportsShortCues,
+    textSupportsSpeakerLabels,
     includeTimestamps,
     shortCues,
+    speakerLabels,
     baseName,
   ]);
 
@@ -512,6 +518,17 @@ export default function ExportDialog() {
                   className="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
                 />
                 <span>{t("export.includeTimestamps")}</span>
+              </label>
+            )}
+            {textSupportsSpeakerLabels && (
+              <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={speakerLabels}
+                  onChange={(e) => setSpeakerLabels(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
+                />
+                <span>{t("export.speakerLabels")}</span>
               </label>
             )}
             {textSupportsShortCues && (

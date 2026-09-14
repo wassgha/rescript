@@ -37,6 +37,12 @@ export interface SerializeOptions {
    * on speaker changes and pause gaps (legacy long cues).
    */
   shortCues?: boolean;
+  /**
+   * When true (default for SRT/VTT/TXT/MD/DOCX/PDF), prefix cues / turns with
+   * speaker names (`Speaker 1: …`, VTT `<v>`, document headings). When false,
+   * export dialogue only. JSON always keeps speaker ids/names for re-import.
+   */
+  speakerLabels?: boolean;
 }
 
 interface Cue {
@@ -108,10 +114,11 @@ export function serializeTranscript(
     throw new Error(en["error.noWords"]);
   }
   const shortCues = options.shortCues !== false;
+  const speakerLabels = options.speakerLabels !== false;
   const cues = wordsToCues(prepared, shortCues);
   return format === "vtt"
-    ? serializeVtt(cues, speakers, shortCues)
-    : serializeSrt(cues, speakers, shortCues);
+    ? serializeVtt(cues, speakers, shortCues, speakerLabels)
+    : serializeSrt(cues, speakers, shortCues, speakerLabels);
 }
 
 /** Serialize to DOCX or PDF (binary). */
@@ -122,8 +129,11 @@ export function serializeTranscriptBinary(
 ): Uint8Array {
   const speakers = speakersFromWords(words, options.speakers ?? []);
   const turns = buildDocumentTurns(words, { ...options, speakers });
-  if (format === "docx") return serializeDocx(turns, speakers, options.timestamps);
-  return serializePdf(turns, speakers, options.timestamps);
+  const speakerLabels = options.speakerLabels !== false;
+  if (format === "docx") {
+    return serializeDocx(turns, speakers, options.timestamps, speakerLabels);
+  }
+  return serializePdf(turns, speakers, options.timestamps, speakerLabels);
 }
 
 /** Trigger a browser download of the serialized transcript / subtitles. */
@@ -198,11 +208,17 @@ function serializeDocument(
   const speakers = speakersFromWords(words, options.speakers ?? []);
   const turns = buildDocumentTurns(words, { ...options, speakers });
   const withTs = Boolean(options.timestamps);
+  const withLabels = options.speakerLabels !== false;
 
   if (format === "txt") {
     return (
       turns
         .map((turn) => {
+          if (!withLabels) {
+            return withTs
+              ? `[${formatTranscriptTimestamp(turn.start)}] ${turn.text}`
+              : turn.text;
+          }
           const label = speakerLabel(speakers, turn.speaker);
           const prefix = withTs
             ? `[${formatTranscriptTimestamp(turn.start)}] ${label}`
@@ -216,6 +232,11 @@ function serializeDocument(
   return (
     turns
       .map((turn) => {
+        if (!withLabels) {
+          return withTs
+            ? `**[${formatTranscriptTimestamp(turn.start)}]**\n\n${turn.text}`
+            : turn.text;
+        }
         const label = speakerLabel(speakers, turn.speaker);
         const heading = withTs
           ? `**[${formatTranscriptTimestamp(turn.start)}] ${label}**`
@@ -237,10 +258,20 @@ function escapeXml(text: string): string {
 function serializeDocx(
   turns: DocumentTurn[],
   speakers: SpeakerInfo[],
-  timestamps?: boolean
+  timestamps?: boolean,
+  speakerLabels = true
 ): Uint8Array {
   const paragraphs = turns
     .map((turn) => {
+      const body = `<w:p><w:pPr><w:spacing w:after="240"/></w:pPr><w:r><w:t xml:space="preserve">${escapeXml(turn.text)}</w:t></w:r></w:p>`;
+      if (!speakerLabels) {
+        if (!timestamps) return body;
+        const heading = `[${formatTranscriptTimestamp(turn.start)}]`;
+        return [
+          `<w:p><w:pPr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${escapeXml(heading)}</w:t></w:r></w:p>`,
+          body,
+        ].join("");
+      }
       const label = speakerLabel(speakers, turn.speaker);
       const heading = timestamps
         ? `[${formatTranscriptTimestamp(turn.start)}] ${label}`
@@ -249,7 +280,7 @@ function serializeDocx(
         // Speaker heading (bold)
         `<w:p><w:pPr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">${escapeXml(heading)}</w:t></w:r></w:p>`,
         // Body
-        `<w:p><w:pPr><w:spacing w:after="240"/></w:pPr><w:r><w:t xml:space="preserve">${escapeXml(turn.text)}</w:t></w:r></w:p>`,
+        body,
       ].join("");
     })
     .join("");
@@ -447,7 +478,8 @@ function wrapCueLines(text: string, maxChars: number): string[] {
 function serializeSrt(
   cues: Cue[],
   speakers: SpeakerInfo[],
-  shortCues: boolean
+  shortCues: boolean,
+  speakerLabels: boolean
 ): string {
   return (
     cues
@@ -456,7 +488,7 @@ function serializeSrt(
           String(i + 1),
           `${formatSrtTimestamp(cue.start)} --> ${formatSrtTimestamp(cue.end)}`,
         ];
-        if (cue.speaker >= 0) {
+        if (speakerLabels && cue.speaker >= 0) {
           lines.push(
             formatCueBody(
               cue.text,
@@ -476,7 +508,8 @@ function serializeSrt(
 function serializeVtt(
   cues: Cue[],
   speakers: SpeakerInfo[],
-  shortCues: boolean
+  shortCues: boolean,
+  speakerLabels: boolean
 ): string {
   const body = cues
     .map((cue) => {
@@ -485,7 +518,7 @@ function serializeVtt(
         ? wrapCueLines(cue.text, CUE_LINE_CHARS).join("\n")
         : cue.text;
       const text =
-        cue.speaker >= 0
+        speakerLabels && cue.speaker >= 0
           ? `<v ${speakerLabel(speakers, cue.speaker)}>${dialogue}`
           : dialogue;
       return `${timing}\n${text}`;
@@ -604,7 +637,8 @@ function wrapPdfLine(text: string, maxChars: number): string[] {
 function serializePdf(
   turns: DocumentTurn[],
   speakers: SpeakerInfo[],
-  timestamps?: boolean
+  timestamps?: boolean,
+  speakerLabels = true
 ): Uint8Array {
   const pageWidth = 612;
   const pageHeight = 792;
@@ -617,11 +651,15 @@ function serializePdf(
   type PdfLine = { text: string; bold: boolean };
   const allLines: PdfLine[] = [];
   for (const turn of turns) {
-    const label = speakerLabel(speakers, turn.speaker);
-    const heading = timestamps
-      ? `[${formatTranscriptTimestamp(turn.start)}] ${label}`
-      : label;
-    allLines.push({ text: heading, bold: true });
+    if (speakerLabels || timestamps) {
+      const label = speakerLabel(speakers, turn.speaker);
+      const heading = !speakerLabels
+        ? `[${formatTranscriptTimestamp(turn.start)}]`
+        : timestamps
+          ? `[${formatTranscriptTimestamp(turn.start)}] ${label}`
+          : label;
+      allLines.push({ text: heading, bold: true });
+    }
     for (const line of wrapPdfLine(turn.text, maxChars)) {
       allLines.push({ text: line, bold: false });
     }

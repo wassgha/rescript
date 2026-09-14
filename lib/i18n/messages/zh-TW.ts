@@ -140,6 +140,7 @@ export const zhTW: Record<MessageKey, string> = {
   "export.statCuts": "剪除",
   "export.statEdited": "成片",
   "export.includeTimestamps": "包含時間戳",
+  "export.speakerLabels": "包含說話人姓名",
   "export.shortCues": "短字幕（≤5 秒）",
   "export.transcriptHelp": "帶有說話人標籤的文字，已移除剪除內容。",
   "export.transcriptHelpTimestamps":

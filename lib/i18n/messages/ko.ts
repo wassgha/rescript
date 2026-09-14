@@ -140,6 +140,7 @@ export const ko: Record<MessageKey, string> = {
   "export.statCuts": "컷",
   "export.statEdited": "편집본",
   "export.includeTimestamps": "타임스탬프 포함",
+  "export.speakerLabels": "화자 이름 포함",
   "export.shortCues": "짧은 자막 (≤5초)",
   "export.transcriptHelp": "화자 라벨이 포함된 텍스트이며 컷한 내용은 제거됩니다.",
   "export.transcriptHelpTimestamps":

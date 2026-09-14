@@ -141,6 +141,7 @@ export const en = {
   "export.statCuts": "Cuts",
   "export.statEdited": "Edited",
   "export.includeTimestamps": "Include timestamps",
+  "export.speakerLabels": "Include speaker names",
   "export.shortCues": "Short cues (≤5s)",
   "export.transcriptHelp": "Speaker-labeled text with cuts removed.",
   "export.transcriptHelpTimestamps":

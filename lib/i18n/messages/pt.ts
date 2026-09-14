@@ -140,6 +140,7 @@ export const pt: Record<MessageKey, string> = {
   "export.statCuts": "Cortes",
   "export.statEdited": "Editado",
   "export.includeTimestamps": "Incluir marcas de tempo",
+  "export.speakerLabels": "Incluir nomes dos falantes",
   "export.shortCues": "Legendas curtas (≤5 s)",
   "export.transcriptHelp": "Texto com rótulos de falante e cortes removidos.",
   "export.transcriptHelpTimestamps":

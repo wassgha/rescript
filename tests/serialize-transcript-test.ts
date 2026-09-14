@@ -435,4 +435,45 @@ const sample: Word[] = [
   console.log("max cue chars: ok");
 }
 
+{
+  // speakerLabels: false omits names from captions and documents.
+  const srt = serializeTranscript(sample, "srt", {
+    duration: 10,
+    speakerLabels: false,
+  });
+  assert(srt.includes("Hello world"), `srt text\n${srt}`);
+  assert(srt.includes("How are you"), `srt text 2\n${srt}`);
+  assert(!/Speaker \d+:/.test(srt), `srt should omit speaker prefix\n${srt}`);
+
+  const vtt = serializeTranscript(sample, "vtt", {
+    duration: 10,
+    speakerLabels: false,
+  });
+  assert(vtt.includes("Hello world"), `vtt text\n${vtt}`);
+  assert(!vtt.includes("<v "), `vtt should omit voice tags\n${vtt}`);
+
+  const txt = serializeTranscript(sample, "txt", {
+    duration: 10,
+    speakerLabels: false,
+  });
+  assert(txt.includes("Hello world"), `txt text\n${txt}`);
+  assert(!/Speaker \d+:/.test(txt), `txt should omit labels\n${txt}`);
+
+  const md = serializeTranscript(sample, "md", {
+    duration: 10,
+    speakerLabels: false,
+    timestamps: true,
+  });
+  assert(md.includes("Hello world"), `md text\n${md}`);
+  assert(md.includes("**[0:01]**"), `md keeps timestamps without names\n${md}`);
+  assert(!md.includes("Speaker"), `md should omit speaker names\n${md}`);
+
+  // JSON always keeps speakers for re-import regardless of the toggle.
+  const json = serializeTranscript(sample, "json", { speakerLabels: false });
+  const data = JSON.parse(json);
+  assert(data.speakers?.[0]?.name === "Speaker 1", "json keeps speaker names");
+  assert(data.words[0].speaker === 0, "json keeps speaker ids");
+  console.log("speakerLabels off: ok");
+}
+
 console.log("ALL SERIALIZE TRANSCRIPT TESTS PASSED");
