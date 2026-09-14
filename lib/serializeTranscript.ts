@@ -31,6 +31,12 @@ export interface SerializeOptions {
   speakers?: SpeakerInfo[];
   /** Prefix each speaker turn with its start time (document formats only). */
   timestamps?: boolean;
+  /**
+   * When true (default for SRT/VTT), split captions into short sentence-sized
+   * cues (≤{@link MAX_CUE_DURATION}s, wrapped lines). When false, only split
+   * on speaker changes and pause gaps (legacy long cues).
+   */
+  shortCues?: boolean;
 }
 
 interface Cue {
@@ -49,11 +55,10 @@ interface DocumentTurn {
 /** Split a cue when the gap between consecutive words exceeds this (seconds). */
 const CUE_GAP = 0.75;
 /**
- * Max on-screen duration for one caption cue (seconds). Continuous speech with
- * no long pause used to become a single 60s+ cue; broadcast style guides cap
- * events around 7s (e.g. Netflix timed-text).
+ * Max on-screen duration for one caption cue (seconds) when short cues are on.
+ * Continuous speech with no long pause used to become a single 60s+ cue.
  */
-const MAX_CUE_DURATION = 7;
+const MAX_CUE_DURATION = 5;
 /**
  * Soft max characters of dialogue in one cue (≈ two 42-char lines). Keeps
  * exported SRT/VTT from dumping a whole paragraph onto the video frame.
@@ -102,10 +107,11 @@ export function serializeTranscript(
   if (prepared.length === 0) {
     throw new Error(en["error.noWords"]);
   }
-  const cues = wordsToCues(prepared);
+  const shortCues = options.shortCues !== false;
+  const cues = wordsToCues(prepared, shortCues);
   return format === "vtt"
-    ? serializeVtt(cues, speakers)
-    : serializeSrt(cues, speakers);
+    ? serializeVtt(cues, speakers, shortCues)
+    : serializeSrt(cues, speakers, shortCues);
 }
 
 /** Serialize to DOCX or PDF (binary). */
@@ -315,13 +321,13 @@ function isWordKept(word: Word, cuts: TimeRange[]): boolean {
 }
 
 /**
- * Group timed words into short caption cues.
+ * Group timed words into caption cues.
  *
- * Splits on speaker change, pause gaps, sentence-ending punctuation, and hard
- * caps on duration / character count so continuous speech cannot produce a
- * single multi-line block that overflows the video frame.
+ * Always splits on speaker change and pause gaps. When `shortCues` is on, also
+ * splits on sentence-ending punctuation and hard-caps duration / character
+ * count so continuous speech cannot produce a single oversized on-screen block.
  */
-function wordsToCues(words: Word[]): Cue[] {
+function wordsToCues(words: Word[], shortCues: boolean): Cue[] {
   const cues: Cue[] = [];
   let batch: Word[] = [];
 
@@ -339,6 +345,7 @@ function wordsToCues(words: Word[]): Cue[] {
     // cue when the previous cue was mid-sentence and the fragment still fits.
     const prev = cues[cues.length - 1];
     if (
+      shortCues &&
       prev &&
       prev.speaker === cue.speaker &&
       !endsSentence(prev.text) &&
@@ -356,7 +363,7 @@ function wordsToCues(words: Word[]): Cue[] {
   };
 
   const wouldOverflow = (next: Word): boolean => {
-    if (batch.length === 0) return false;
+    if (!shortCues || batch.length === 0) return false;
     const text = `${batch.map((w) => w.text).join(" ")} ${next.text}`;
     const duration = next.end - batch[0].start;
     if (duration > MAX_CUE_DURATION) return true;
@@ -386,7 +393,7 @@ function wordsToCues(words: Word[]): Cue[] {
     }
     batch.push(w);
     // Prefer a new cue after each sentence so timestamps stay line/sentence sized.
-    if (endsSentence(w.text)) flush();
+    if (shortCues && endsSentence(w.text)) flush();
   }
   flush();
   return cues;
@@ -397,11 +404,14 @@ function endsSentence(text: string): boolean {
   return /[.!?…。？！]["'"”’」』】）)\]]*$/u.test(text.trim());
 }
 
-/**
- * Wrap cue dialogue for on-screen display (≈42 chars × 2 lines). Speaker labels
- * stay on the first line only.
- */
-function formatCueBody(text: string, speakerPrefix?: string): string {
+function formatCueBody(
+  text: string,
+  speakerPrefix: string | undefined,
+  wrap: boolean
+): string {
+  if (!wrap) {
+    return speakerPrefix ? `${speakerPrefix}${text}` : text;
+  }
   const wrapped = wrapCueLines(text, CUE_LINE_CHARS);
   if (!speakerPrefix) return wrapped.join("\n");
   if (wrapped.length === 0) return speakerPrefix.trimEnd();
@@ -434,7 +444,11 @@ function wrapCueLines(text: string, maxChars: number): string[] {
   return lines;
 }
 
-function serializeSrt(cues: Cue[], speakers: SpeakerInfo[]): string {
+function serializeSrt(
+  cues: Cue[],
+  speakers: SpeakerInfo[],
+  shortCues: boolean
+): string {
   return (
     cues
       .map((cue, i) => {
@@ -444,10 +458,14 @@ function serializeSrt(cues: Cue[], speakers: SpeakerInfo[]): string {
         ];
         if (cue.speaker >= 0) {
           lines.push(
-            formatCueBody(cue.text, `${speakerLabel(speakers, cue.speaker)}: `)
+            formatCueBody(
+              cue.text,
+              `${speakerLabel(speakers, cue.speaker)}: `,
+              shortCues
+            )
           );
         } else {
-          lines.push(formatCueBody(cue.text));
+          lines.push(formatCueBody(cue.text, undefined, shortCues));
         }
         return lines.join("\n");
       })
@@ -455,15 +473,21 @@ function serializeSrt(cues: Cue[], speakers: SpeakerInfo[]): string {
   );
 }
 
-function serializeVtt(cues: Cue[], speakers: SpeakerInfo[]): string {
+function serializeVtt(
+  cues: Cue[],
+  speakers: SpeakerInfo[],
+  shortCues: boolean
+): string {
   const body = cues
     .map((cue) => {
       const timing = `${formatVttTimestamp(cue.start)} --> ${formatVttTimestamp(cue.end)}`;
-      const wrapped = wrapCueLines(cue.text, CUE_LINE_CHARS).join("\n");
+      const dialogue = shortCues
+        ? wrapCueLines(cue.text, CUE_LINE_CHARS).join("\n")
+        : cue.text;
       const text =
         cue.speaker >= 0
-          ? `<v ${speakerLabel(speakers, cue.speaker)}>${wrapped}`
-          : wrapped;
+          ? `<v ${speakerLabel(speakers, cue.speaker)}>${dialogue}`
+          : dialogue;
       return `${timing}\n${text}`;
     })
     .join("\n\n");

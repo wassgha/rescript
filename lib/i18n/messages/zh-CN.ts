@@ -142,6 +142,7 @@ export const zhCN: Record<MessageKey, string> = {
   "export.statCuts": "剪除",
   "export.statEdited": "成片",
   "export.includeTimestamps": "包含时间戳",
+  "export.shortCues": "短字幕（≤5 秒）",
   "export.transcriptHelp": "带说话人标签的文本，已移除剪除内容。",
   "export.transcriptHelpTimestamps":
     "带说话人标签的文本，已移除剪除内容。每段以成片时间轴上的时间开头。",
@@ -149,6 +150,8 @@ export const zhCN: Record<MessageKey, string> = {
     "PDF 使用标准拉丁字体 — 完整 Unicode（如中日韩）请优先选择 DOCX。",
   "export.subtitlesHelp":
     "SRT 和 VTT 使用已应用剪除的成片时间轴；JSON 保留完整词表以便重新导入。",
+  "export.subtitlesHelpShortCues":
+    "SRT 和 VTT 使用已应用剪除的成片时间轴，并拆成短句字幕（≤5 秒）。JSON 保留完整词表以便重新导入。",
   "export.encodingHelp": "使用 ffmpeg.wasm 重新编码，较长文件需要更多时间。",
   "export.reexport": "按最新编辑重新导出",
   "export.rendering": "正在浏览器中渲染…",

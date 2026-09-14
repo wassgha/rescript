@@ -141,6 +141,7 @@ export const en = {
   "export.statCuts": "Cuts",
   "export.statEdited": "Edited",
   "export.includeTimestamps": "Include timestamps",
+  "export.shortCues": "Short cues (≤5s)",
   "export.transcriptHelp": "Speaker-labeled text with cuts removed.",
   "export.transcriptHelpTimestamps":
     "Speaker-labeled text with cuts removed. Each turn starts with its edited-timeline time.",
@@ -148,6 +149,8 @@ export const en = {
     "PDF uses a standard Latin font — prefer DOCX for full Unicode (CJK, etc.).",
   "export.subtitlesHelp":
     "SRT and VTT use the edited timeline (cuts applied). JSON keeps the full word list for re-import.",
+  "export.subtitlesHelpShortCues":
+    "SRT and VTT use the edited timeline (cuts applied), split into short sentence-sized cues (≤5s). JSON keeps the full word list for re-import.",
   "export.encodingHelp": "Re-encoding with ffmpeg.wasm — longer files take a while.",
   "export.reexport": "Re-export with latest edits",
   "export.rendering": "Rendering in your browser…",

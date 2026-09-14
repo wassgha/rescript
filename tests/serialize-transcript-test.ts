@@ -357,9 +357,35 @@ const sample: Word[] = [
     const dur =
       toSec(match![5], match![6], match![7], match![8]) -
       toSec(match![1], match![2], match![3], match![4]);
-    assert(dur <= 7.05, `cue longer than 7s (${dur})\n${block}`);
+    assert(dur <= 5.05, `cue longer than 5s (${dur})\n${block}`);
   }
   console.log("max cue duration: ok");
+}
+
+{
+  // shortCues: false keeps legacy speaker/gap-only splitting (long cues OK).
+  const words: Word[] = [];
+  for (let i = 0; i < 40; i++) {
+    const start = i * 0.4;
+    words.push({
+      id: i,
+      text: `w${i}`,
+      start,
+      end: start + 0.35,
+      speaker: 0,
+      deleted: false,
+    });
+  }
+  const srt = serializeTranscript(words, "srt", {
+    editedTimeline: false,
+    duration: 20,
+    shortCues: false,
+  });
+  const blocks = srt.trim().split(/\n\n+/);
+  assert(blocks.length === 1, `legacy mode should be one cue, got ${blocks.length}\n${srt}`);
+  assert(srt.includes("w0 w1"), "legacy keeps continuous text");
+  assert(!srt.includes("\nw0 w1\n"), "legacy does not wrap body lines");
+  console.log("shortCues off: ok");
 }
 
 {

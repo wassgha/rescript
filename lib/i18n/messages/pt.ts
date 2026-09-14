@@ -140,6 +140,7 @@ export const pt: Record<MessageKey, string> = {
   "export.statCuts": "Cortes",
   "export.statEdited": "Editado",
   "export.includeTimestamps": "Incluir marcas de tempo",
+  "export.shortCues": "Legendas curtas (≤5 s)",
   "export.transcriptHelp": "Texto com rótulos de falante e cortes removidos.",
   "export.transcriptHelpTimestamps":
     "Texto com rótulos de falante e cortes removidos. Cada turno começa com o tempo na linha do tempo editada.",
@@ -147,6 +148,8 @@ export const pt: Record<MessageKey, string> = {
     "PDF usa uma fonte latina padrão — prefira DOCX para Unicode completo (CJK etc.).",
   "export.subtitlesHelp":
     "SRT e VTT usam a linha do tempo editada (com cortes aplicados). JSON conserva a lista completa de palavras para reimportar.",
+  "export.subtitlesHelpShortCues":
+    "SRT e VTT usam a linha do tempo editada (com cortes aplicados), divididos em legendas curtas por frase (≤5 s). JSON conserva a lista completa de palavras para reimportar.",
   "export.encodingHelp": "Recodificando com ffmpeg.wasm — arquivos longos demoram um pouco.",
   "export.reexport": "Reexportar com as últimas edições",
   "export.rendering": "Renderizando no seu navegador…",

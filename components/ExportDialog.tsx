@@ -42,6 +42,8 @@ type ExportTab = "video" | "audio" | "transcript" | "timeline";
 
 /** Document formats that support an optional timestamps toggle. */
 const DOC_FORMATS = new Set<TranscriptFormat>(["txt", "md", "docx", "pdf"]);
+/** Caption formats that support the short-cues toggle. */
+const SUBTITLE_FORMATS = new Set<TranscriptFormat>(["srt", "vtt"]);
 
 const VIDEO_FORMATS: { value: VideoExportFormat; label: string }[] = [
   { value: "mp4", label: "MP4" },
@@ -110,6 +112,7 @@ export default function ExportDialog() {
   const [audioFormat, setAudioFormat] = useState<AudioExportFormat>("m4a");
   const [textFormat, setTextFormat] = useState<TranscriptFormat>("txt");
   const [includeTimestamps, setIncludeTimestamps] = useState(false);
+  const [shortCues, setShortCues] = useState(true);
   const [timelineFormat, setTimelineFormat] =
     useState<TimelineExportFormat>("resolve");
   const [timelineFrameRate, setTimelineFrameRate] =
@@ -269,6 +272,7 @@ export default function ExportDialog() {
   ]);
 
   const textSupportsTimestamps = DOC_FORMATS.has(textFormat);
+  const textSupportsShortCues = SUBTITLE_FORMATS.has(textFormat);
 
   const exportText = useCallback(() => {
     // Read live store state at click time so a rename / replace-in-project
@@ -282,12 +286,14 @@ export default function ExportDialog() {
         cuts: liveCuts,
         speakers: speakersFromWords(s.words, s.speakers),
         ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
+        ...(textSupportsShortCues ? { shortCues } : {}),
       });
       setError(null);
       trackEvent("export_completed", {
         kind: "transcript",
         format: textFormat,
         ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
+        ...(textSupportsShortCues ? { shortCues } : {}),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : en["error.export"]);
@@ -295,7 +301,9 @@ export default function ExportDialog() {
   }, [
     textFormat,
     textSupportsTimestamps,
+    textSupportsShortCues,
     includeTimestamps,
+    shortCues,
     baseName,
   ]);
 
@@ -506,9 +514,24 @@ export default function ExportDialog() {
                 <span>{t("export.includeTimestamps")}</span>
               </label>
             )}
+            {textSupportsShortCues && (
+              <label className="flex cursor-pointer items-center gap-2.5 rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={shortCues}
+                  onChange={(e) => setShortCues(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
+                />
+                <span>{t("export.shortCues")}</span>
+              </label>
+            )}
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {textFormat === "srt" || textFormat === "vtt" || textFormat === "json"
-                ? t("export.subtitlesHelp")
+              {textFormat === "srt" || textFormat === "vtt"
+                ? shortCues
+                  ? t("export.subtitlesHelpShortCues")
+                  : t("export.subtitlesHelp")
+                : textFormat === "json"
+                  ? t("export.subtitlesHelp")
                 : includeTimestamps
                   ? t("export.transcriptHelpTimestamps")
                   : t("export.transcriptHelp")}

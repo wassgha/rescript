@@ -140,6 +140,7 @@ export const de: Record<MessageKey, string> = {
   "export.statCuts": "Schnitte",
   "export.statEdited": "Bearbeitet",
   "export.includeTimestamps": "Zeitstempel einbeziehen",
+  "export.shortCues": "Kurze Untertitel (≤5 s)",
   "export.transcriptHelp": "Text mit Sprecherlabels und entfernten Schnitten.",
   "export.transcriptHelpTimestamps":
     "Text mit Sprecherlabels und entfernten Schnitten. Jeder Abschnitt beginnt mit der Zeit auf der bearbeiteten Timeline.",
@@ -147,6 +148,8 @@ export const de: Record<MessageKey, string> = {
     "PDF nutzt eine lateinische Standardschrift — für volles Unicode (CJK usw.) besser DOCX verwenden.",
   "export.subtitlesHelp":
     "SRT und VTT verwenden die bearbeitete Timeline (Schnitte angewendet). JSON behält die vollständige Wortliste für den erneuten Import.",
+  "export.subtitlesHelpShortCues":
+    "SRT und VTT verwenden die bearbeitete Timeline (Schnitte angewendet), aufgeteilt in kurze satzweise Untertitel (≤5 s). JSON behält die vollständige Wortliste für den erneuten Import.",
   "export.encodingHelp": "Neucodierung mit ffmpeg.wasm — längere Dateien dauern eine Weile.",
   "export.reexport": "Mit neuesten Änderungen erneut exportieren",
   "export.rendering": "Rendering in deinem Browser…",
