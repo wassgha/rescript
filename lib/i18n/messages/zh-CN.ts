@@ -142,6 +142,7 @@ export const zhCN: Record<MessageKey, string> = {
   "export.statCuts": "剪除",
   "export.statEdited": "成片",
   "export.includeTimestamps": "包含时间戳",
+  "export.speakerLabels": "包含说话人姓名",
   "export.shortCues": "短字幕（≤5 秒）",
   "export.transcriptHelp": "带说话人标签的文本，已移除剪除内容。",
   "export.transcriptHelpTimestamps":

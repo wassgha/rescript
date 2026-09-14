@@ -140,6 +140,7 @@ export const ja: Record<MessageKey, string> = {
   "export.statCuts": "カット",
   "export.statEdited": "編集後",
   "export.includeTimestamps": "タイムスタンプを含める",
+  "export.speakerLabels": "話者名を含める",
   "export.shortCues": "短い字幕（≤5秒）",
   "export.transcriptHelp": "話者ラベル付きテキスト。カット部分は除外されます。",
   "export.transcriptHelpTimestamps":
