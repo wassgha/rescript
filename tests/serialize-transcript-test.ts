@@ -403,6 +403,8 @@ const sample: Word[] = [
       dialogue.length <= 90,
       `cue dialogue too long (${dialogue.length})\n${block}`
     );
+    const bodyLines = block.split("\n").slice(2);
+    assert(bodyLines.length <= 3, `cue should wrap to ≤3 lines\n${block}`);
   }
   console.log("max cue chars: ok");
 }

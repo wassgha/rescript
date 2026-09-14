@@ -327,20 +327,52 @@ function wordsToCues(words: Word[]): Cue[] {
 
   const flush = () => {
     if (batch.length === 0) return;
-    cues.push({
+    const cue: Cue = {
       start: batch[0].start,
       end: Math.max(batch[batch.length - 1].end, batch[0].start + 0.02),
       text: batch.map((w) => w.text).join(" "),
       speaker: batch[0].speaker,
-    });
+    };
     batch = [];
+
+    // Absorb tiny trailing fragments (e.g. a lone "exporter.") into the previous
+    // cue when the previous cue was mid-sentence and the fragment still fits.
+    const prev = cues[cues.length - 1];
+    if (
+      prev &&
+      prev.speaker === cue.speaker &&
+      !endsSentence(prev.text) &&
+      cue.start - prev.end <= CUE_GAP &&
+      cue.end - cue.start < 1.25 &&
+      cue.text.length <= 24 &&
+      cue.end - prev.start <= MAX_CUE_DURATION &&
+      wrapCueLines(`${prev.text} ${cue.text}`, CUE_LINE_CHARS).length <= 2
+    ) {
+      prev.end = cue.end;
+      prev.text = `${prev.text} ${cue.text}`;
+      return;
+    }
+    cues.push(cue);
   };
 
   const wouldOverflow = (next: Word): boolean => {
     if (batch.length === 0) return false;
     const text = `${batch.map((w) => w.text).join(" ")} ${next.text}`;
     const duration = next.end - batch[0].start;
-    return text.length > MAX_CUE_CHARS || duration > MAX_CUE_DURATION;
+    if (duration > MAX_CUE_DURATION) return true;
+    // Let a short lowercase sentence-final token finish the current cue
+    // ("… the old" + "exporter.") instead of becoming a one-word orphan.
+    if (
+      endsSentence(next.text) &&
+      next.text.length <= 24 &&
+      !/^\p{Lu}/u.test(next.text)
+    ) {
+      return false;
+    }
+    return (
+      wrapCueLines(text, CUE_LINE_CHARS).length > 2 ||
+      text.length > MAX_CUE_CHARS
+    );
   };
 
   for (const w of words) {
