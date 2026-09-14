@@ -140,6 +140,7 @@ export const zhTW: Record<MessageKey, string> = {
   "export.statCuts": "剪除",
   "export.statEdited": "成片",
   "export.includeTimestamps": "包含時間戳",
+  "export.shortCues": "短字幕（≤5 秒）",
   "export.transcriptHelp": "帶有說話人標籤的文字，已移除剪除內容。",
   "export.transcriptHelpTimestamps":
     "帶有說話人標籤的文字，已移除剪除內容。每段以編輯後時間軸上的時間開頭。",
@@ -147,6 +148,8 @@ export const zhTW: Record<MessageKey, string> = {
     "PDF 使用標準拉丁字型 — 完整 Unicode（如中日韓）請優先選擇 DOCX。",
   "export.subtitlesHelp":
     "SRT 和 VTT 使用已套用剪除的編輯後時間軸。JSON 保留完整詞表以便重新匯入。",
+  "export.subtitlesHelpShortCues":
+    "SRT 和 VTT 使用已套用剪除的編輯後時間軸，並拆成短句字幕（≤5 秒）。JSON 保留完整詞表以便重新匯入。",
   "export.encodingHelp": "使用 ffmpeg.wasm 重新編碼 — 較長的檔案需要一些時間。",
   "export.reexport": "以最新編輯重新匯出",
   "export.rendering": "正在瀏覽器中算出…",

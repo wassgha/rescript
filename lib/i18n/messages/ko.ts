@@ -140,6 +140,7 @@ export const ko: Record<MessageKey, string> = {
   "export.statCuts": "컷",
   "export.statEdited": "편집본",
   "export.includeTimestamps": "타임스탬프 포함",
+  "export.shortCues": "짧은 자막 (≤5초)",
   "export.transcriptHelp": "화자 라벨이 포함된 텍스트이며 컷한 내용은 제거됩니다.",
   "export.transcriptHelpTimestamps":
     "화자 라벨이 포함된 텍스트이며 컷한 내용은 제거됩니다. 각 발화는 편집된 타임라인 시각으로 시작합니다.",
@@ -147,6 +148,8 @@ export const ko: Record<MessageKey, string> = {
     "PDF는 표준 라틴 글꼴을 사용합니다. 완전한 유니코드(CJK 등)에는 DOCX를 권장합니다.",
   "export.subtitlesHelp":
     "SRT와 VTT는 편집된 타임라인(컷 적용)을 사용합니다. JSON은 다시 가져오기 위해 전체 단어 목록을 유지합니다.",
+  "export.subtitlesHelpShortCues":
+    "SRT와 VTT는 편집된 타임라인(컷 적용)을 사용하며 짧은 문장 단위 자막(≤5초)으로 나눕니다. JSON은 다시 가져오기 위해 전체 단어 목록을 유지합니다.",
   "export.encodingHelp": "ffmpeg.wasm으로 다시 인코딩 중 — 긴 파일은 시간이 걸립니다.",
   "export.reexport": "최신 편집으로 다시 내보내기",
   "export.rendering": "브라우저에서 렌더링 중…",

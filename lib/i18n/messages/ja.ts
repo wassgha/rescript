@@ -140,6 +140,7 @@ export const ja: Record<MessageKey, string> = {
   "export.statCuts": "カット",
   "export.statEdited": "編集後",
   "export.includeTimestamps": "タイムスタンプを含める",
+  "export.shortCues": "短い字幕（≤5秒）",
   "export.transcriptHelp": "話者ラベル付きテキスト。カット部分は除外されます。",
   "export.transcriptHelpTimestamps":
     "話者ラベル付きテキスト。カット部分は除外され、各発話は編集後タイムラインの時刻で始まります。",
@@ -147,6 +148,8 @@ export const ja: Record<MessageKey, string> = {
     "PDF はラテン系の標準フォントを使います。CJK など完全な Unicode には DOCX を推奨します。",
   "export.subtitlesHelp":
     "SRT と VTT は編集後のタイムライン（カット適用済み）を使用します。JSON は再インポート用に完全な単語リストを保持します。",
+  "export.subtitlesHelpShortCues":
+    "SRT と VTT は編集後のタイムライン（カット適用済み）を使い、短い文単位の字幕（≤5秒）に分割します。JSON は再インポート用に完全な単語リストを保持します。",
   "export.encodingHelp": "ffmpeg.wasm で再エンコード中 — 長いファイルは時間がかかります。",
   "export.reexport": "最新の編集で再書き出し",
   "export.rendering": "ブラウザでレンダリング中…",

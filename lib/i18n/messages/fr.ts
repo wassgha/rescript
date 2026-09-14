@@ -140,6 +140,7 @@ export const fr: Record<MessageKey, string> = {
   "export.statCuts": "Coupes",
   "export.statEdited": "Monté",
   "export.includeTimestamps": "Inclure les horodatages",
+  "export.shortCues": "Sous-titres courts (≤5 s)",
   "export.transcriptHelp": "Texte avec étiquettes de locuteur et coupes retirées.",
   "export.transcriptHelpTimestamps":
     "Texte avec étiquettes de locuteur et coupes retirées. Chaque tour commence par son temps sur la timeline montée.",
@@ -147,6 +148,8 @@ export const fr: Record<MessageKey, string> = {
     "Le PDF utilise une police latine standard — préférez DOCX pour l’Unicode complet (CJK, etc.).",
   "export.subtitlesHelp":
     "SRT et VTT utilisent la timeline montée (coupes appliquées). JSON conserve la liste complète des mots pour une réimportation.",
+  "export.subtitlesHelpShortCues":
+    "SRT et VTT utilisent la timeline montée (coupes appliquées), découpés en sous-titres courts par phrase (≤5 s). JSON conserve la liste complète des mots pour une réimportation.",
   "export.encodingHelp": "Réencodage avec ffmpeg.wasm — les fichiers longs prennent un moment.",
   "export.reexport": "Réexporter avec les dernières modifications",
   "export.rendering": "Rendu dans votre navigateur…",
