@@ -1,10 +1,11 @@
 /**
  * Copies WASM runtime assets from node_modules into public/ so the app can be
  * served fully offline (no CDN requests at runtime):
- *   - @ffmpeg/core-mt  -> public/vendor/ffmpeg/  (audio extraction + export)
- *   - onnxruntime-web  -> public/vendor/ort/     (transformers.js inference)
+ *   - @ffmpeg/core-mt  -> public/vendor/ffmpeg/     (fast audio extraction)
+ *   - @ffmpeg/core     -> public/vendor/ffmpeg-st/  (growable heap for export)
+ *   - onnxruntime-web  -> public/vendor/ort/        (transformers.js inference)
  *   - parakeet.js ORT  -> public/vendor/ort-parakeet/ (Parakeet TDT inference)
- *   - assets/aaf       -> public/vendor/aaf/     (Pro Tools / Logic AAF scaffold)
+ *   - assets/aaf       -> public/vendor/aaf/        (Pro Tools / Logic AAF scaffold)
  * Runs automatically on `npm install` (postinstall).
  */
 import {
@@ -20,12 +21,20 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const ffmpegSrc = join(root, "node_modules/@ffmpeg/core-mt/dist/esm");
-const ffmpegDst = join(root, "public/vendor/ffmpeg");
-mkdirSync(ffmpegDst, { recursive: true });
-for (const f of readdirSync(ffmpegSrc)) {
-  cpSync(join(ffmpegSrc, f), join(ffmpegDst, f));
+function copyFfmpegCore(pkgName, dstName) {
+  const src = join(root, "node_modules", pkgName, "dist/esm");
+  const dst = join(root, "public/vendor", dstName);
+  mkdirSync(dst, { recursive: true });
+  for (const f of readdirSync(src)) {
+    cpSync(join(src, f), join(dst, f));
+  }
 }
+
+// Multi-threaded: fixed 1 GiB shared heap — fine for audio extraction, too
+// small for many 1080p/original video exports (see lib/ffmpeg.ts).
+copyFfmpegCore("@ffmpeg/core-mt", "ffmpeg");
+// Single-threaded: growable up to 2 GiB — used for video/audio export.
+copyFfmpegCore("@ffmpeg/core", "ffmpeg-st");
 
 // The @ffmpeg/ffmpeg "class worker" contains a dynamic import() that bundlers
 // cannot process; serve the package's own ESM build and point classWorkerURL
@@ -112,5 +121,5 @@ for (const f of readdirSync(aafSrc)) {
 }
 
 console.log(
-  "[copy-assets] ffmpeg core + onnxruntime wasm + aaf scaffold copied to public/"
+  "[copy-assets] ffmpeg cores (mt+st) + onnxruntime wasm + aaf scaffold copied to public/"
 );
