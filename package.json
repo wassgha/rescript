@@ -21,15 +21,16 @@
     "lint": "eslint",
     "test:i18n": "tsx tests/i18n-test.ts",
     "test:timeline": "tsx tests/serialize-timeline-test.ts",
-    "test:ffmpeg": "tsx tests/ffmpeg-watchdog-test.ts && tsx tests/ffmpeg-core-test.ts",
+    "test:ffmpeg": "tsx tests/ffmpeg-watchdog-test.ts && tsx tests/ffmpeg-core-test.ts && tsx tests/export-args-test.ts && tsx tests/native-ffmpeg-test.ts",
     "postinstall": "patch-package && node scripts/copy-assets.mjs",
     "build:electron": "node scripts/build-electron.mjs",
+    "fetch:ffmpeg": "node scripts/fetch-ffmpeg.mjs",
     "typecheck:electron": "tsc -p electron/tsconfig.json --noEmit",
-    "electron:dev": "npm run build:electron && concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"node scripts/electron-dev.mjs\"",
+    "electron:dev": "npm run fetch:ffmpeg -- --host && npm run build:electron && concurrently -k -n next,electron -c cyan,magenta \"next dev\" \"node scripts/electron-dev.mjs\"",
     "export:web": "cross-env STATIC_EXPORT=1 next build",
     "export:desktop": "cross-env STATIC_EXPORT=1 NEXT_PUBLIC_ELECTRON=1 next build",
-    "dist": "npm run export:desktop && npm run build:electron && electron-builder --config.npmRebuild=false",
-    "release": "npm run export:desktop && npm run build:electron && electron-builder --publish always --config.npmRebuild=false",
+    "dist": "npm run export:desktop && npm run build:electron && npm run fetch:ffmpeg && electron-builder --config.npmRebuild=false",
+    "release": "npm run export:desktop && npm run build:electron && npm run fetch:ffmpeg && electron-builder --publish always --config.npmRebuild=false",
     "cut:patch": "npm version patch -m \"Release v%s\" && git push --follow-tags",
     "cut:minor": "npm version minor -m \"Release v%s\" && git push --follow-tags",
     "cut:major": "npm version major -m \"Release v%s\" && git push --follow-tags",
@@ -101,6 +102,13 @@
       "!**/node_modules/**"
     ],
     "asar": true,
+    "extraResources": [
+      {
+        "from": "build/ffmpeg/${os}-${arch}",
+        "to": "ffmpeg"
+      }
+    ],
+    "afterPack": "scripts/after-pack.cjs",
     "mac": {
       "target": [
         {

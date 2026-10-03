@@ -53,6 +53,14 @@ export interface ProjectRecord extends ProjectMeta {
   media: Blob;
   /** MIME type used when reconstructing a File. */
   mediaType: string;
+  /**
+   * Desktop only: where the original media was on disk when last saved, so the
+   * native engine can read it there instead of copying `media` back out. Only
+   * trusted while size and mtime still match.
+   */
+  sourcePath?: string;
+  sourceSize?: number;
+  sourceMtime?: number;
 }
 
 export type ProjectWrite = Omit<ProjectRecord, "id" | "createdAt" | "updatedAt"> & {
@@ -191,6 +199,13 @@ export async function putProject(input: ProjectWrite): Promise<string> {
     speakers: input.speakers ?? [],
     media: input.media,
     mediaType: input.mediaType,
+    ...(input.sourcePath
+      ? {
+          sourcePath: input.sourcePath,
+          sourceSize: input.sourceSize,
+          sourceMtime: input.sourceMtime,
+        }
+      : {}),
     createdAt: createdAt ?? now,
     updatedAt: now,
   };

@@ -44,7 +44,12 @@ jobs:
       - name: Timeline export tests
         run: npm run test:timeline
 
-      - name: ffmpeg watchdog tests
+      # The native-engine tests render through the same static ffmpeg the
+      # desktop app bundles (they skip, rather than fail, without it).
+      - name: Fetch native ffmpeg
+        run: npm run fetch:ffmpeg -- --host
+
+      - name: ffmpeg tests
         run: npm run test:ffmpeg
 
       - name: Build Next.js

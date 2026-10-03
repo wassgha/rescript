@@ -77,6 +77,31 @@ emulation can leave V8 without the SSE4.1 it requires to enable Wasm SIMD, and
 every wasm binary the app ships is a SIMD build, so the editor cannot start at
 all. See `lib/wasmFeatures.ts`.
 
+## Native ffmpeg
+
+The desktop app extracts audio and renders exports with a bundled static
+ffmpeg run from the main process (`electron/media.ts`), not ffmpeg.wasm — the
+wasm heap caps out at 2 GiB and holds the whole render in memory, which is what
+made long and high-resolution desktop exports fail.
+
+`npm run dist` / `npm run release` run `npm run fetch:ffmpeg` first, which
+downloads the pinned [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static)
+release for every arch the current OS builds (mac: x64 + arm64; win: x64, also
+used for arm64 under emulation; linux: x64), checks it against the SHA-256
+digests in `scripts/fetch-ffmpeg.mjs`, and writes it to
+`build/ffmpeg/<os>-<arch>/` (gitignored). `build.extraResources` copies the
+matching one into `resources/ffmpeg/`, and `scripts/after-pack.cjs` fails the
+build if it's missing. osx-sign signs it with the rest of the bundle.
+
+The binaries are GPL builds; their LICENSE and README ship next to them. To
+move to a newer upstream release, update `RELEASE_TAG` and the digests
+(`gh api repos/eugeneware/ffmpeg-static/releases/tags/<tag>` lists them).
+
+If the bundled binary is missing or won't start on a user's machine, the app
+falls back to ffmpeg.wasm and reports `stage=native-media-fallback` to Sentry.
+`RESCRIPT_MEDIA_ENGINE=wasm` forces the wasm engine; `RESCRIPT_FFMPEG_PATH`
+points at a specific binary.
+
 ## How signing & notarization work (macOS)
 
 - `build.mac` in `package.json` sets `hardenedRuntime: true`, points at

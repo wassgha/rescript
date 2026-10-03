@@ -138,5 +138,14 @@ export function initSentry() {
 export function reportError(error: unknown, stage: string) {
   if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;
   if (!isTelemetryEnabled()) return;
-  Sentry.captureException(error, { tags: { stage } });
+  // Native media errors carry ffmpeg's stderr tail — the only record of what
+  // actually went wrong. Scrubbed of paths by beforeSend like any other extra.
+  const detail =
+    error && typeof error === "object" && "detail" in error
+      ? (error as { detail?: unknown }).detail
+      : undefined;
+  Sentry.captureException(error, {
+    tags: { stage },
+    ...(typeof detail === "string" ? { extra: { detail } } : {}),
+  });
 }
