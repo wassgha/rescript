@@ -8,6 +8,7 @@
  * this throws {@link NativeUnavailableError}.
  */
 import { en } from "@/lib/i18n/messages/en";
+import { reportError } from "./sentry";
 import type { ExportRequest } from "./exportArgs";
 import type {
   NativeMediaFailure,
@@ -207,6 +208,8 @@ const activeJobs = new Set<string>();
 export interface NativeExport {
   outputId: string;
   size: number;
+  hardwareDecode: boolean;
+  hardwareEncode: boolean;
 }
 
 export async function nativeRenderExport(
@@ -225,7 +228,20 @@ export async function nativeRenderExport(
     if (!res.ok) {
       fail(res, en[request.kind === "audio" ? "error.audioExport" : "error.videoExport"]);
     }
-    return { outputId: res.outputId, size: res.size };
+    if (res.fallback) {
+      // The user got their file, from the software retry. Still worth
+      // knowing: every such export took the slow path, and the stderr says why.
+      reportError(
+        new NativeMediaError("Hardware export failed; used software", "failed", res.fallback),
+        "native-hw-fallback"
+      );
+    }
+    return {
+      outputId: res.outputId,
+      size: res.size,
+      hardwareDecode: res.hardwareDecode,
+      hardwareEncode: res.hardwareEncode,
+    };
   } finally {
     if (jobId) activeJobs.delete(jobId);
   }

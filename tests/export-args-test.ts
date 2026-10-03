@@ -9,6 +9,7 @@ import {
   buildAudioExport,
   buildVideoExport,
   createProgressParser,
+  defaultExportResolution,
   parseExportRequest,
   progressRatio,
   scaleFilter,
@@ -61,6 +62,27 @@ function main() {
     assert(plan.codecArgs.join(" ").includes("-preset veryfast"), "native x264 preset");
   }
 
+  // VideoToolbox swaps only the video encoder; filtergraph, maps, audio and
+  // muxer flags stay identical, so a software retry renders the same edit.
+  {
+    const x264 = buildVideoExport(ranges, { resolution: "1080" });
+    const vt = buildVideoExport(ranges, { resolution: "1080" }, { h264Encoder: "h264_videotoolbox" });
+    eq(vt.filter, x264.filter, "VideoToolbox keeps the filtergraph");
+    eq(vt.streamArgs, x264.streamArgs, "VideoToolbox keeps the maps");
+    eq(
+      vt.codecArgs,
+      [
+        "-c:v", "h264_videotoolbox", "-q:v", "65",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+      ],
+      "VideoToolbox codec args"
+    );
+    // WebM has no hardware VP9 encoder; the option is ignored there.
+    const webm = buildVideoExport(ranges, { format: "webm" }, { h264Encoder: "h264_videotoolbox" });
+    assert(webm.codecArgs.includes("libvpx-vp9"), "WebM stays on libvpx");
+  }
+
   // Silent source, scaled, WebM.
   {
     const plan = buildVideoExport(ranges, {
@@ -73,7 +95,7 @@ function main() {
       "[0:v]trim=start=0.000:end=1.500,setpts=PTS-STARTPTS[v0];" +
         "[0:v]trim=start=2.250:end=4.000,setpts=PTS-STARTPTS[v1];" +
         "[v0][v1]concat=n=2:v=1:a=0[outv];" +
-        "[outv]scale=-2:'min(ih,1080)',scale=trunc(iw/2)*2:trunc(ih/2)*2[vout]",
+        "[outv]scale=w='trunc(iw*min(1,1080/min(iw,ih))/2)*2':h='trunc(ih*min(1,1080/min(iw,ih))/2)*2'[vout]",
       "silent scaled filtergraph"
     );
     eq(plan.streamArgs, ["-map", "[vout]", "-an"], "silent maps");
@@ -89,7 +111,17 @@ function main() {
   }
 
   eq(scaleFilter("original"), null, "original is not scaled");
-  assert(scaleFilter("2160")?.includes("min(ih,2160)"), "4K caps at 2160");
+  assert(scaleFilter("2160")?.includes("2160/min(iw,ih)"), "4K caps the short side at 2160");
+  assert(scaleFilter("720")?.includes("720/min(iw,ih)"), "720p caps the short side at 720");
+
+  // Default export size: 1080p for anything bigger, the source otherwise.
+  eq(defaultExportResolution(3840, 2160), "1080", "4K landscape defaults to 1080p");
+  eq(defaultExportResolution(2160, 3840), "1080", "4K portrait defaults to 1080p");
+  eq(defaultExportResolution(2560, 1440), "1080", "1440p defaults to 1080p");
+  eq(defaultExportResolution(1920, 1080), "original", "1080p stays original");
+  eq(defaultExportResolution(1080, 1920), "original", "vertical 1080p stays original");
+  eq(defaultExportResolution(1280, 720), "original", "720p stays original");
+  eq(defaultExportResolution(0, 0), "1080", "unknown size defaults to 1080p (never upscales)");
 
   // Audio presets.
   {

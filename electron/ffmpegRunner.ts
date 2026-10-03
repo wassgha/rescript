@@ -223,9 +223,14 @@ export function nativeExportArgs(
   input: string,
   graphPath: string,
   plan: ExportPlan,
-  out: string
+  out: string,
+  { hardwareDecode = false }: { hardwareDecode?: boolean } = {}
 ): string[] {
   return [
+    // Decoded frames still come back to system memory (no
+    // -hwaccel_output_format), so the CPU filtergraph works unchanged, and a
+    // stream VideoToolbox can't decode quietly falls back to software.
+    ...(hardwareDecode ? ["-hwaccel", "videotoolbox"] : []),
     "-i", input,
     "-filter_complex_script", graphPath,
     ...plan.streamArgs,
@@ -235,6 +240,139 @@ export function nativeExportArgs(
     "-max_muxing_queue_size", "1024",
     "-y", out,
   ];
+}
+
+/** ffmpeg's log says the disk filled up mid-render — retrying won't help. */
+export function isNoSpace(stderr: string): boolean {
+  return /No space left on device|ENOSPC|There is not enough space/i.test(stderr);
+}
+
+/** One way of running a job; {@link runAttempts} tries them in order. */
+export interface RunAttempt {
+  /** Short description for the fallback report, e.g. "videotoolbox". */
+  label: string;
+  args: string[];
+}
+
+export interface AttemptsOutcome {
+  outcome: RunOutcome;
+  /** Index into the attempts of the run that produced `outcome`. */
+  used: number;
+  /** Why each earlier attempt was abandoned (label, detail, stderr tail). */
+  fallbacks: string[];
+}
+
+/**
+ * Run `attempts` in order until one succeeds: the hardware-accelerated
+ * command first, then the plain software one. Anything an attempt left
+ * behind is the caller's to clear in `beforeRetry` (a partial output file,
+ * the progress bar).
+ *
+ * Cancellation and a full disk end the run immediately — the next attempt
+ * would only be cancelled or run out of space too.
+ */
+export async function runAttempts(
+  bin: string,
+  attempts: RunAttempt[],
+  { beforeRetry, ...options }: RunOptions & { beforeRetry?: () => Promise<void> | void } = {}
+): Promise<AttemptsOutcome> {
+  const fallbacks: string[] = [];
+  for (let i = 0; ; i++) {
+    const outcome = await runFFmpeg(bin, attempts[i].args, options);
+    const last = i === attempts.length - 1;
+    if (
+      outcome.ok ||
+      last ||
+      outcome.code === "cancelled" ||
+      isNoSpace(outcome.stderrTail)
+    ) {
+      return { outcome, used: i, fallbacks };
+    }
+    fallbacks.push(
+      `${attempts[i].label}: ${outcome.detail}\n${outcome.stderrTail.slice(-2000)}`
+    );
+    await beforeRetry?.();
+  }
+}
+
+/** The first video stream of a file, as ffmpeg's input dump describes it. */
+export interface VideoStreamInfo {
+  codec: string;
+  pixFmt: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * Pick the first real video stream out of `ffmpeg -i` log output — skipping
+ * cover art, which audio files carry as an "(attached pic)" mjpeg stream.
+ * The pixel format's parenthesised colour info can hold commas and slashes
+ * (`yuv420p10le(tv, bt2020nc/bt2020/arib-std-b67)` on iPhone HDR), so it is
+ * skipped as a unit.
+ */
+export function parseVideoStream(log: string): VideoStreamInfo | null {
+  for (const line of log.split(/\r?\n/)) {
+    if (/\(attached pic\)/.test(line)) continue;
+    const m = /Stream #\d+:\d+.*?: Video: (\w+)[^,]*, (\w+)(?:\([^)]*\))?, (\d+)x(\d+)/.exec(
+      line
+    );
+    if (m) {
+      return { codec: m[1], pixFmt: m[2], width: Number(m[3]), height: Number(m[4]) };
+    }
+  }
+  return null;
+}
+
+/** Describe `path`'s video stream (null for audio-only or unreadable files). */
+export async function probeVideoStream(
+  bin: string,
+  path: string
+): Promise<VideoStreamInfo | null> {
+  const lines: string[] = [];
+  // No output: ffmpeg prints the input dump and exits non-zero, which is fine.
+  await runFFmpeg(bin, ["-i", path], { onStderrLine: (line) => lines.push(line) });
+  return parseVideoStream(lines.join("\n"));
+}
+
+/**
+ * Codecs worth decoding on the GPU (macOS VideoToolbox). Measured on an M1
+ * Pro, per 20–30 s clip:
+ *
+ *   - HEVC (every iPhone since 2017): 4K 10-bit 3.2 s hardware vs 19.1 s
+ *     software; 1080p 1.1 s vs 3.9 s.
+ *   - ProRes 4K: 3.2 s vs 4.2 s.
+ *   - H.264: hardware is *slower* at every size (4K 7.0 s vs 3.9 s) —
+ *     software H.264 is cheap and threads well, so it's left alone.
+ *
+ * AV1 has a hardware decoder on M3 and later; elsewhere VideoToolbox declines
+ * it and ffmpeg falls back to software like it does for any other codec.
+ */
+const HARDWARE_DECODE_CODECS = new Set(["hevc", "prores", "av1"]);
+
+export function wantsHardwareDecode(
+  info: VideoStreamInfo | null,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  return platform === "darwin" && info !== null && HARDWARE_DECODE_CODECS.has(info.codec);
+}
+
+/**
+ * Whether the Mac's hardware H.264 encoder takes the constant-quality setting
+ * the export uses. False on Intel Macs (no constant-quality VideoToolbox) and
+ * anywhere VideoToolbox can't open a session, so those keep libx264.
+ */
+export async function probeHardwareEncoder(
+  bin: string,
+  quality: number,
+  platform: NodeJS.Platform = process.platform
+): Promise<boolean> {
+  if (platform !== "darwin") return false;
+  const outcome = await runFFmpeg(bin, [
+    "-f", "lavfi", "-i", "color=s=256x144:r=30:d=0.2",
+    "-c:v", "h264_videotoolbox", "-q:v", String(quality),
+    "-pix_fmt", "yuv420p", "-f", "null", "-",
+  ]);
+  return outcome.ok;
 }
 
 export type ProbeOutcome =

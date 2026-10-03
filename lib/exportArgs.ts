@@ -18,7 +18,11 @@ export interface TimeRange {
 /** Container / codec presets for video export. */
 export type VideoExportFormat = "mp4" | "webm";
 
-/** Target output height. `"original"` keeps the source resolution. */
+/**
+ * Target size, as the length of the frame's short side — so "1080" is
+ * 1920×1080 for landscape and 1080×1920 for a vertical phone video.
+ * `"original"` keeps the source resolution. Never upscales.
+ */
 export type VideoExportResolution = "original" | "720" | "1080" | "2160";
 
 /** Container / codec presets for audio-only export. */
@@ -35,6 +39,9 @@ export interface AudioExportOptions {
   format?: AudioExportFormat;
 }
 
+/** H.264 encoders an MP4 export can use. */
+export type H264Encoder = "libx264" | "h264_videotoolbox";
+
 /** Engine-specific encoder tuning. */
 export interface EncoderTuning {
   /**
@@ -42,7 +49,20 @@ export interface EncoderTuning {
    * keeps `ultrafast`; a native encoder can afford a smaller file.
    */
   x264Preset?: "ultrafast" | "superfast" | "veryfast" | "faster" | "fast" | "medium";
+  /**
+   * MP4 video encoder. `h264_videotoolbox` is the Mac's hardware encoder: as
+   * fast as libx264 on an 8-core M1 Pro, 1.5–2.2× faster on 4-core machines,
+   * and it leaves the CPU free. Only the desktop app's native engine uses it.
+   */
+  h264Encoder?: H264Encoder;
 }
+
+/**
+ * VideoToolbox constant-quality level matched to libx264 `-crf 22`: on a
+ * 16 Mb/s 1080p source both land at ~32 MB / 30 s with SSIM 0.982. Constant
+ * quality needs Apple Silicon; Intel Macs fail the probe and use libx264.
+ */
+export const VIDEOTOOLBOX_QUALITY = 65;
 
 /** Everything about an export except where its input and output live. */
 export interface ExportPlan {
@@ -65,7 +85,7 @@ export const VIDEO_RESOLUTIONS: readonly VideoExportResolution[] = [
 ];
 export const AUDIO_FORMATS: readonly AudioExportFormat[] = ["m4a", "mp3", "wav"];
 
-const VIDEO_HEIGHT: Record<Exclude<VideoExportResolution, "original">, number> = {
+const SHORT_SIDE: Record<Exclude<VideoExportResolution, "original">, number> = {
   "720": 720,
   "1080": 1080,
   "2160": 2160,
@@ -75,15 +95,33 @@ const VIDEO_HEIGHT: Record<Exclude<VideoExportResolution, "original">, number> =
 export const AUDIO_STREAM_RE = /Stream #\d+:\d+.*: Audio:/;
 
 /**
- * Scale filter that fits inside the target height without upscaling, keeping
- * even dimensions (required by libx264 / libvpx).
+ * Scale filter that brings the frame's short side down to the target, keeping
+ * the aspect ratio and even dimensions (required by libx264 / libvpx). Sources
+ * already at or below the target pass through unscaled.
+ *
+ * Capping the short side rather than the height is what keeps "1080p" of a
+ * vertical 2160×3840 phone video at 1080×1920 instead of 608×1080. Plain
+ * arithmetic (no `-2` sentinels inside expressions), so the wasm core's
+ * ffmpeg 5.1 evaluates it exactly like the native 6.x–7.x builds.
  */
 export function scaleFilter(resolution: VideoExportResolution): string | null {
   if (resolution === "original") return null;
-  const h = VIDEO_HEIGHT[resolution];
-  // Never upscale: cap height at source ih. force_original_aspect_ratio keeps
-  // width proportional; the second scale snaps to even sizes.
-  return `scale=-2:'min(ih,${h})',scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+  const k = `min(1,${SHORT_SIDE[resolution]}/min(iw,ih))`;
+  return `scale=w='trunc(iw*${k}/2)*2':h='trunc(ih*${k}/2)*2'`;
+}
+
+/**
+ * Resolution an export starts at: 1080p for anything larger, the source size
+ * otherwise. Most exports end up on screens and social feeds where 4K buys
+ * nothing, and rendering 4K is 4× the pixels — about 3.7× slower in practice.
+ * Unknown dimensions (0×0) default to 1080p, which never upscales anyway.
+ */
+export function defaultExportResolution(
+  width: number,
+  height: number
+): VideoExportResolution {
+  const shortSide = Math.min(width, height);
+  return shortSide > 0 && shortSide <= SHORT_SIDE["1080"] ? "original" : "1080";
 }
 
 /**
@@ -95,7 +133,7 @@ export function scaleFilter(resolution: VideoExportResolution): string | null {
 export function buildVideoExport(
   keepRanges: TimeRange[],
   { withAudio = true, format = "mp4", resolution = "original" }: VideoExportOptions = {},
-  { x264Preset = "ultrafast" }: EncoderTuning = {}
+  { x264Preset = "ultrafast", h264Encoder = "libx264" }: EncoderTuning = {}
 ): ExportPlan {
   const scale = scaleFilter(resolution);
   const parts: string[] = [];
@@ -135,9 +173,9 @@ export function buildVideoExport(
           ...(withAudio ? ["-c:a", "libopus", "-b:a", "128k"] : []),
         ]
       : [
-          "-c:v", "libx264",
-          "-preset", x264Preset,
-          "-crf", "22",
+          ...(h264Encoder === "h264_videotoolbox"
+            ? ["-c:v", "h264_videotoolbox", "-q:v", String(VIDEOTOOLBOX_QUALITY)]
+            : ["-c:v", "libx264", "-preset", x264Preset, "-crf", "22"]),
           "-pix_fmt", "yuv420p",
           ...(withAudio ? ["-c:a", "aac", "-b:a", "192k"] : []),
           "-movflags", "+faststart",

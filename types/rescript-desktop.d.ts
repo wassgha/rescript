@@ -58,7 +58,17 @@ export interface RescriptDesktopMedia {
     request: ExportRequest,
     onProgress: (ratio: number) => void,
     onStart?: (jobId: string) => void
-  ) => Promise<NativeMediaResult<{ outputId: string; size: number }>>;
+  ) => Promise<
+    NativeMediaResult<{
+      outputId: string;
+      size: number;
+      /** VideoToolbox decoded / encoded the render that succeeded. */
+      hardwareDecode: boolean;
+      hardwareEncode: boolean;
+      /** Set when a hardware attempt failed and software finished the job. */
+      fallback?: string;
+    }>
+  >;
   cancelExport: (jobId: string) => Promise<NativeMediaResult>;
   /** Native Save dialog, then move the render there. `cancelled` if dismissed. */
   saveExport: (

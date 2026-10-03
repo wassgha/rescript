@@ -14,10 +14,11 @@ import { useEditorStore, type ExportResult } from "@/lib/store";
 import { reportError } from "@/lib/sentry";
 import { trackEvent } from "@/lib/telemetry";
 import { formatTime, getCutRanges, getEditedDuration, getKeepRanges } from "@/lib/edits";
-import type {
-  AudioExportFormat,
-  VideoExportFormat,
-  VideoExportResolution,
+import {
+  defaultExportResolution,
+  type AudioExportFormat,
+  type VideoExportFormat,
+  type VideoExportResolution,
 } from "@/lib/exportArgs";
 import { activeMediaEngine, exportMedia, type MediaEngine } from "@/lib/mediaEngine";
 import {
@@ -125,7 +126,14 @@ export default function ExportDialog() {
   const isAudioProject = mediaKind === "audio";
   const [tab, setTab] = useState<ExportTab>("video");
   const [videoFormat, setVideoFormat] = useState<VideoExportFormat>("mp4");
-  const [resolution, setResolution] = useState<VideoExportResolution>("original");
+  // null until the user picks one: then the default follows the source, 1080p
+  // for anything bigger (4K renders ~3.7× slower) and the source size otherwise.
+  const [pickedResolution, setResolution] = useState<VideoExportResolution | null>(null);
+  const videoEl = useEditorStore((s) => s.videoEl);
+  const sourceVideo = videoEl && "videoWidth" in videoEl ? (videoEl as HTMLVideoElement) : null;
+  const resolution =
+    pickedResolution ??
+    defaultExportResolution(sourceVideo?.videoWidth ?? 0, sourceVideo?.videoHeight ?? 0);
   const [audioFormat, setAudioFormat] = useState<AudioExportFormat>("m4a");
   const [textFormat, setTextFormat] = useState<TranscriptFormat>("txt");
   const [includeTimestamps, setIncludeTimestamps] = useState(false);
@@ -217,13 +225,11 @@ export default function ExportDialog() {
 
   const setResolutionOption = useCallback(
     (value: VideoExportResolution) => {
-      setResolution((prev) => {
-        if (prev === value) return prev;
-        clearMediaExport();
-        return value;
-      });
+      if (value === resolution) return;
+      clearMediaExport();
+      setResolution(value);
     },
-    [clearMediaExport]
+    [resolution, clearMediaExport]
   );
 
   const setAudioFormatOption = useCallback(
@@ -282,6 +288,12 @@ export default function ExportDialog() {
         format: activeTab === "audio" ? audioFormat : videoFormat,
         engine: result.engine,
         ...(activeTab === "audio" ? {} : { resolution }),
+        ...(result.engine === "native" && activeTab !== "audio"
+          ? {
+              hardwareDecode: result.hardwareDecode,
+              hardwareEncode: result.hardwareEncode,
+            }
+          : {}),
       });
     } catch (err) {
       if (!stillCurrent()) return;

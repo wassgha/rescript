@@ -102,6 +102,12 @@ falls back to ffmpeg.wasm and reports `stage=native-media-fallback` to Sentry.
 `RESCRIPT_MEDIA_ENGINE=wasm` forces the wasm engine; `RESCRIPT_FFMPEG_PATH`
 points at a specific binary.
 
+On macOS, exports use VideoToolbox: hardware decoding for HEVC / ProRes / AV1
+sources (software stays faster for H.264) and the hardware H.264 encoder for
+MP4. If a hardware attempt fails, the same job re-runs in software and the
+failure is reported as `stage=native-hw-fallback`. `RESCRIPT_MEDIA_HW=0`
+turns hardware off. Windows and Linux render in software for now.
+
 ## How signing & notarization work (macOS)
 
 - `build.mac` in `package.json` sets `hardenedRuntime: true`, points at

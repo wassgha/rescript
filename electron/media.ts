@@ -45,13 +45,23 @@ import {
   extractAudioArgs,
   parseExportRequest,
   progressRatio,
+  VIDEOTOOLBOX_QUALITY,
+  type ExportPlan,
+  type ExportRequest,
 } from "../lib/exportArgs";
 import {
+  isNoSpace,
   nativeExportArgs,
   probeFFmpeg,
+  probeHardwareEncoder,
+  probeVideoStream,
   resolveBinary,
+  runAttempts,
   runFFmpeg,
+  wantsHardwareDecode,
+  type RunAttempt,
   type RunOutcome,
+  type VideoStreamInfo,
 } from "./ffmpegRunner";
 
 /** Failure kinds the renderer distinguishes (see lib/nativeMedia.ts). */
@@ -76,6 +86,8 @@ interface MediaEntry {
   /** Copied in by us (and deleted on release) rather than the user's own file. */
   staged: boolean;
   owner: number;
+  /** Codec / size of the video stream, probed on first export. */
+  video?: Promise<VideoStreamInfo | null>;
 }
 
 interface StageEntry {
@@ -109,6 +121,74 @@ const jobs = new Map<string, { controller: AbortController; owner: number }>();
 let binary: string | null = null;
 let probe: Promise<{ ok: true; version: string } | Fail> | null = null;
 let lastSaveDir: string | null = null;
+let hardwareEncoder: Promise<boolean> | null = null;
+
+/**
+ * Hardware decode / encode (VideoToolbox) are macOS-only for now: the Windows
+ * build has NVENC/QSV/AMF encoders, but nothing has measured or verified them
+ * on real GPUs yet, and the Linux build has none. `RESCRIPT_MEDIA_HW=0` turns
+ * them off for support and A/B checks.
+ */
+function hardwareAllowed(): boolean {
+  return process.platform === "darwin" && process.env.RESCRIPT_MEDIA_HW !== "0";
+}
+
+function hardwareEncoderAvailable(bin: string): Promise<boolean> {
+  hardwareEncoder ??= probeHardwareEncoder(bin, VIDEOTOOLBOX_QUALITY);
+  return hardwareEncoder;
+}
+
+interface RenderConfig {
+  plan: ExportPlan;
+  hardwareDecode: boolean;
+  hardwareEncode: boolean;
+}
+
+/**
+ * The ways to render `request`, fastest first. A Mac gets VideoToolbox
+ * (hardware decode for HEVC/ProRes sources, hardware H.264 encode for MP4)
+ * followed by the plain software command as the fallback; everything else gets
+ * just the software command.
+ */
+async function renderConfigs(
+  bin: string,
+  entry: MediaEntry,
+  request: ExportRequest
+): Promise<RenderConfig[]> {
+  if (request.kind === "audio") {
+    const plan = buildAudioExport(request.keepRanges, request.options);
+    return [{ plan, hardwareDecode: false, hardwareEncode: false }];
+  }
+  const software: RenderConfig = {
+    plan: buildVideoExport(request.keepRanges, request.options, { x264Preset: "veryfast" }),
+    hardwareDecode: false,
+    hardwareEncode: false,
+  };
+  if (!hardwareAllowed()) return [software];
+  entry.video ??= probeVideoStream(bin, entry.path);
+  const hardwareDecode = wantsHardwareDecode(await entry.video);
+  const hardwareEncode =
+    request.options.format === "mp4" && (await hardwareEncoderAvailable(bin));
+  if (!hardwareDecode && !hardwareEncode) return [software];
+  const fast: RenderConfig = {
+    plan: hardwareEncode
+      ? buildVideoExport(request.keepRanges, request.options, {
+          h264Encoder: "h264_videotoolbox",
+        })
+      : software.plan,
+    hardwareDecode,
+    hardwareEncode,
+  };
+  return [fast, software];
+}
+
+function configLabel({ hardwareDecode, hardwareEncode }: RenderConfig): string {
+  return (
+    [hardwareDecode && "hw-decode", hardwareEncode && "hw-encode"]
+      .filter(Boolean)
+      .join("+") || "software"
+  );
+}
 
 const ROOT_NAME = "rescript-media";
 let sessionDir: string | null = null;
@@ -170,13 +250,9 @@ function safeFileName(name: unknown, ext: string): string {
   return cleaned || `export.${ext}`;
 }
 
-function isNoSpace(outcome: RunOutcome): boolean {
-  return /No space left on device|ENOSPC|There is not enough space/i.test(outcome.stderrTail);
-}
-
 function failFromRun(outcome: Extract<RunOutcome, { ok: false }>): Fail {
   const detail = `${outcome.detail}\n${outcome.stderrTail.slice(-4000)}`;
-  if (outcome.code === "failed" && isNoSpace(outcome)) {
+  if (outcome.code === "failed" && isNoSpace(outcome.stderrTail)) {
     return { ok: false, code: "no-space", detail };
   }
   return { ok: false, code: outcome.code, detail };
@@ -466,14 +542,13 @@ export function registerMediaIpc(): void {
       const available = await ensureAvailable();
       if (!available.ok || !binary) return available;
 
-      const plan =
-        request.kind === "video"
-          ? buildVideoExport(request.keepRanges, request.options, { x264Preset: "veryfast" })
-          : buildAudioExport(request.keepRanges, request.options);
-      const out = tempPath(`.${plan.ext}`);
+      const configs = await renderConfigs(binary, entry, request);
+      // Every config shares the filtergraph; only decode/encode flags differ.
+      const { ext, filter } = configs[0].plan;
+      const out = tempPath(`.${ext}`);
       const graphPath = tempPath(".txt");
       try {
-        await writeFile(graphPath, plan.filter, "utf8");
+        await writeFile(graphPath, filter, "utf8");
       } catch (err) {
         return ioFail(err);
       }
@@ -482,20 +557,30 @@ export function registerMediaIpc(): void {
       const owner = event.sender;
       jobs.set(jobId, { controller, owner: owner.id });
       let lastSent = -1;
-      const outcome = await runFFmpeg(
-        binary,
-        nativeExportArgs(entry.path, graphPath, plan, out),
-        {
-          signal: controller.signal,
-          onProgress: (seconds) => {
-            const ratio = progressRatio(seconds, request.editedDuration);
-            // A few hundred updates per export is plenty for a progress bar.
-            if (ratio - lastSent < 0.002 && ratio < 1) return;
-            lastSent = ratio;
-            if (!owner.isDestroyed()) owner.send("export:progress", { jobId, ratio });
-          },
-        }
-      );
+      const sendProgress = (ratio: number) => {
+        lastSent = ratio;
+        if (!owner.isDestroyed()) owner.send("export:progress", { jobId, ratio });
+      };
+      const attempts: RunAttempt[] = configs.map((config) => ({
+        label: configLabel(config),
+        args: nativeExportArgs(entry.path, graphPath, config.plan, out, {
+          hardwareDecode: config.hardwareDecode,
+        }),
+      }));
+      const { outcome, used, fallbacks } = await runAttempts(binary, attempts, {
+        signal: controller.signal,
+        onProgress: (seconds) => {
+          const ratio = progressRatio(seconds, request.editedDuration);
+          // A few hundred updates per export is plenty for a progress bar.
+          if (ratio - lastSent < 0.002 && ratio < 1) return;
+          sendProgress(ratio);
+        },
+        // The software retry starts the bar over rather than freezing it.
+        beforeRetry: async () => {
+          await removeQuietly(out);
+          sendProgress(0);
+        },
+      });
       jobs.delete(jobId);
       await removeQuietly(graphPath);
       if (!outcome.ok) {
@@ -505,8 +590,17 @@ export function registerMediaIpc(): void {
       try {
         const { size } = await stat(out);
         const outputId = randomUUID();
-        outputs.set(outputId, { path: out, ext: plan.ext, saved: false, owner: owner.id });
-        return { ok: true, outputId, size };
+        outputs.set(outputId, { path: out, ext, saved: false, owner: owner.id });
+        return {
+          ok: true,
+          outputId,
+          size,
+          hardwareDecode: configs[used].hardwareDecode,
+          hardwareEncode: configs[used].hardwareEncode,
+          // Hardware that failed and was routed around: worth knowing about
+          // (reported by the renderer), but the user got their file.
+          ...(fallbacks.length > 0 ? { fallback: fallbacks.join("\n---\n") } : {}),
+        };
       } catch (err) {
         return ioFail(err);
       }
