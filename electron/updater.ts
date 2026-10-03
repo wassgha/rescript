@@ -55,8 +55,22 @@ export function initAutoUpdater(): void {
     );
   });
 
-  void autoUpdater.checkForUpdates();
-  setInterval(() => {
-    void autoUpdater.checkForUpdates();
-  }, CHECK_INTERVAL_MS);
+  checkForUpdates();
+  setInterval(checkForUpdates, CHECK_INTERVAL_MS);
+}
+
+/**
+ * electron-updater emits "error" (logged above) and then re-throws from both
+ * the check promise and the auto-download promise it hands back. Nobody else
+ * awaits those, so a flaky network (ERR_CONNECTION_TIMED_OUT mid-download)
+ * would surface as an unhandled rejection. Swallow them here; the next hourly
+ * check retries.
+ */
+function checkForUpdates(): void {
+  autoUpdater
+    .checkForUpdates()
+    .then((result) => {
+      result?.downloadPromise?.catch(() => {});
+    })
+    .catch(() => {});
 }
