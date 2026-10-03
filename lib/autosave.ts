@@ -4,6 +4,7 @@
 
 import { useEditorStore } from "./store";
 import { putProject } from "./projects";
+import { sourceHintFor } from "./nativeMedia";
 
 const DEBOUNCE_MS = 500;
 
@@ -57,6 +58,7 @@ async function writeSnapshot() {
     return;
   }
 
+  const source = sourceHintFor(s.videoFile);
   try {
     // putProject preserves createdAt for an existing id within its own
     // transaction, so no separate read pass here.
@@ -74,6 +76,13 @@ async function writeSnapshot() {
       speakers: s.speakers,
       media: s.videoFile,
       mediaType: s.videoFile.type,
+      ...(source
+        ? {
+            sourcePath: source.path,
+            sourceSize: source.size,
+            sourceMtime: source.mtime,
+          }
+        : {}),
     });
     if (useEditorStore.getState().projectId !== id) {
       useEditorStore.setState({ projectId: id });

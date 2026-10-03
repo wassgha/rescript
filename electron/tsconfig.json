@@ -13,6 +13,6 @@
     "declaration": false,
     "sourceMap": true
   },
-  "include": ["./**/*.ts", "../lib/i18n/locales.ts"],
+  "include": ["./**/*.ts", "../lib/i18n/locales.ts", "../lib/exportArgs.ts"],
   "exclude": ["node_modules"]
 }

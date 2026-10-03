@@ -6,20 +6,25 @@ import {
   Download,
   FileText,
   Film,
+  FolderOpen,
   Music,
   X,
 } from "lucide-react";
-import { useEditorStore } from "@/lib/store";
+import { useEditorStore, type ExportResult } from "@/lib/store";
 import { reportError } from "@/lib/sentry";
 import { trackEvent } from "@/lib/telemetry";
 import { formatTime, getCutRanges, getEditedDuration, getKeepRanges } from "@/lib/edits";
+import type {
+  AudioExportFormat,
+  VideoExportFormat,
+  VideoExportResolution,
+} from "@/lib/exportArgs";
+import { activeMediaEngine, exportMedia, type MediaEngine } from "@/lib/mediaEngine";
 import {
-  exportAudio,
-  exportVideo,
-  type AudioExportFormat,
-  type VideoExportFormat,
-  type VideoExportResolution,
-} from "@/lib/ffmpeg";
+  discardNativeExport,
+  revealNativeExport,
+  saveNativeExport,
+} from "@/lib/nativeMedia";
 import {
   downloadTranscript,
   type TranscriptFormat,
@@ -39,6 +44,18 @@ import { localizeRuntimeMessage } from "@/lib/i18n";
 import { en } from "@/lib/i18n/messages/en";
 
 type ExportTab = "video" | "audio" | "transcript" | "timeline";
+
+/** "Show in Finder" / "Show in Explorer" / "Show in folder", by desktop OS. */
+function revealLabelKey():
+  | "export.showInFinder"
+  | "export.showInExplorer"
+  | "export.showInFolder" {
+  const platform =
+    typeof window === "undefined" ? undefined : window.rescriptDesktop?.platform;
+  if (platform === "darwin") return "export.showInFinder";
+  if (platform === "win32") return "export.showInExplorer";
+  return "export.showInFolder";
+}
 
 /** Document formats that support an optional timestamps toggle. */
 const DOC_FORMATS = new Set<TranscriptFormat>(["txt", "md", "docx", "pdf"]);
@@ -102,8 +119,8 @@ export default function ExportDialog() {
   const hasAudioTrack = useEditorStore((s) => s.hasAudio);
   const status = useEditorStore((s) => s.status);
   const setStatus = useEditorStore((s) => s.setStatus);
-  const exportUrl = useEditorStore((s) => s.exportUrl);
-  const setExportUrl = useEditorStore((s) => s.setExportUrl);
+  const exportResult = useEditorStore((s) => s.exportResult);
+  const setExportResult = useEditorStore((s) => s.setExportResult);
 
   const isAudioProject = mediaKind === "audio";
   const [tab, setTab] = useState<ExportTab>("video");
@@ -121,6 +138,9 @@ export default function ExportDialog() {
   const [timelineBusy, setTimelineBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /** Engine of the current / last render — native renders say so in the copy. */
+  const [renderEngine, setRenderEngine] = useState<MediaEngine | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const cuts = useCutRanges();
   const editedDuration = useMemo(
@@ -136,7 +156,7 @@ export default function ExportDialog() {
   const timelineMeta = TIMELINE_FORMATS.find((f) => f.value === timelineFormat);
   const showTimelineFrameRate = timelineMeta?.needsFrameRate ?? true;
   const exporting = status === "exporting";
-  const dialogBusy = exporting || timelineBusy;
+  const dialogBusy = exporting || timelineBusy || saving;
   const hasWords = words.length > 0;
 
   // Fall back when the remembered tab isn't valid for this project.
@@ -168,11 +188,9 @@ export default function ExportDialog() {
   const mediaFileName = `${baseName}.edited.${mediaExt}`;
 
   const clearMediaExport = useCallback(() => {
-    const prev = useEditorStore.getState().exportUrl;
-    if (prev) URL.revokeObjectURL(prev);
-    setExportUrl(null);
+    setExportResult(null);
     setProgress(0);
-  }, [setExportUrl]);
+  }, [setExportResult]);
 
   const selectTab = useCallback(
     (next: ExportTab) => {
@@ -226,28 +244,47 @@ export default function ExportDialog() {
 
     setError(null);
     setProgress(0);
+    // Free the previous render (a temp file on desktop) before making another.
+    setExportResult(null);
     setStatus("exporting");
+    // Closing the window mid-render swaps the project out from under us; a
+    // result (or failure) that lands afterwards belongs to nothing on screen.
+    const stillCurrent = () => useEditorStore.getState().videoFile === videoFile;
     try {
+      setRenderEngine(await activeMediaEngine());
       const keeps = getKeepRanges(cuts, duration);
-      const blob =
+      const result = await exportMedia(
+        videoFile,
+        keeps,
+        editedDuration,
+        setProgress,
         activeTab === "audio"
-          ? await exportAudio(videoFile, keeps, editedDuration, setProgress, {
-              format: audioFormat,
-            })
-          : await exportVideo(videoFile, keeps, editedDuration, setProgress, {
+          ? { kind: "audio", format: audioFormat }
+          : {
+              kind: "video",
               withAudio: hasAudioTrack,
               format: videoFormat,
               resolution,
-            });
-      const prev = useEditorStore.getState().exportUrl;
-      if (prev) URL.revokeObjectURL(prev);
-      setExportUrl(URL.createObjectURL(blob));
+            }
+      );
+      setRenderEngine(result.engine);
+      if (!stillCurrent()) {
+        if (result.engine === "native") discardNativeExport(result.outputId);
+        return;
+      }
+      const next: ExportResult =
+        result.engine === "native"
+          ? { kind: "file", outputId: result.outputId, size: result.size }
+          : { kind: "blob", url: URL.createObjectURL(result.blob) };
+      setExportResult(next);
       trackEvent("export_completed", {
         kind: activeTab,
         format: activeTab === "audio" ? audioFormat : videoFormat,
+        engine: result.engine,
         ...(activeTab === "audio" ? {} : { resolution }),
       });
     } catch (err) {
+      if (!stillCurrent()) return;
       // The message we show is friendly and lossy — "Export failed while
       // rendering the video" says nothing about which of ffmpeg's failure modes
       // it was. Send the original so the export path is visible in Sentry at
@@ -255,7 +292,7 @@ export default function ExportDialog() {
       reportError(err, `export-${activeTab}`);
       setError(err instanceof Error ? err.message : en["error.export"]);
     } finally {
-      setStatus("ready");
+      if (stillCurrent()) setStatus("ready");
     }
   }, [
     videoFile,
@@ -269,8 +306,31 @@ export default function ExportDialog() {
     videoFormat,
     resolution,
     setStatus,
-    setExportUrl,
+    setExportResult,
   ]);
+
+  /** Desktop: native Save dialog, then move the render to where the user chose. */
+  const saveFileExport = useCallback(async () => {
+    const current = useEditorStore.getState().exportResult;
+    if (current?.kind !== "file") return;
+    setSaving(true);
+    setError(null);
+    try {
+      const savedName = await saveNativeExport(
+        current.outputId,
+        mediaFileName,
+        t("export.saveDialogTitle")
+      );
+      if (savedName && useEditorStore.getState().exportResult === current) {
+        setExportResult({ ...current, savedName });
+      }
+    } catch (err) {
+      reportError(err, "export-save");
+      setError(err instanceof Error ? err.message : en["error.exportSave"]);
+    } finally {
+      setSaving(false);
+    }
+  }, [mediaFileName, setExportResult, t]);
 
   const textSupportsTimestamps = DOC_FORMATS.has(textFormat);
   const textSupportsShortCues = SUBTITLE_FORMATS.has(textFormat);
@@ -641,7 +701,7 @@ export default function ExportDialog() {
             <div>
               <div className="mb-2 flex items-center justify-between text-sm">
                 <span className="font-medium text-zinc-700 dark:text-zinc-200">
-                  {t("export.rendering")}
+                  {t(renderEngine === "native" ? "export.renderingNative" : "export.rendering")}
                 </span>
                 <span className="tabular-nums text-zinc-400 dark:text-zinc-500">
                   {Math.round(progress * 100)}%
@@ -654,13 +714,17 @@ export default function ExportDialog() {
                 />
               </div>
               <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
-                {t("export.encodingHelp")}
+                {t(
+                  renderEngine === "native"
+                    ? "export.encodingHelpNative"
+                    : "export.encodingHelp"
+                )}
               </p>
             </div>
-          ) : exportUrl ? (
+          ) : exportResult?.kind === "blob" ? (
             <div className="flex flex-col gap-2">
               <a
-                href={exportUrl}
+                href={exportResult.url}
                 download={mediaFileName}
                 className="flex h-10 items-center justify-center gap-2 rounded-xl bg-neutral-600 px-4 text-sm font-medium text-white transition hover:bg-neutral-500 dark:bg-neutral-500 dark:hover:bg-neutral-400"
               >
@@ -670,6 +734,52 @@ export default function ExportDialog() {
               <button
                 onClick={startMediaExport}
                 className="h-10 rounded-xl text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                {t("export.reexport")}
+              </button>
+            </div>
+          ) : exportResult?.kind === "file" ? (
+            <div className="flex flex-col gap-2">
+              {exportResult.savedName ? (
+                <>
+                  <p className="truncate text-center text-xs text-zinc-500 dark:text-zinc-400">
+                    {t("export.savedAs", { name: exportResult.savedName })}
+                  </p>
+                  <button
+                    onClick={() => void revealNativeExport(exportResult.outputId)}
+                    className="flex h-10 items-center justify-center gap-2 rounded-xl bg-neutral-600 px-4 text-sm font-medium text-white transition hover:bg-neutral-500 dark:bg-neutral-500 dark:hover:bg-neutral-400"
+                  >
+                    <FolderOpen size={15} className="shrink-0" />
+                    <span className="truncate">{t(revealLabelKey())}</span>
+                  </button>
+                  <button
+                    onClick={saveFileExport}
+                    disabled={saving}
+                    className="h-10 rounded-xl text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  >
+                    {saving
+                      ? t("export.saving")
+                      : t("export.saveFile", { name: mediaFileName })}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={saveFileExport}
+                  disabled={saving}
+                  className="flex h-10 items-center justify-center gap-2 rounded-xl bg-neutral-600 px-4 text-sm font-medium text-white transition hover:bg-neutral-500 disabled:opacity-60 dark:bg-neutral-500 dark:hover:bg-neutral-400"
+                >
+                  <Download size={15} className="shrink-0" />
+                  <span className="truncate">
+                    {saving
+                      ? t("export.saving")
+                      : t("export.saveFile", { name: mediaFileName })}
+                  </span>
+                </button>
+              )}
+              <button
+                onClick={startMediaExport}
+                disabled={saving}
+                className="h-10 rounded-xl text-sm font-medium text-zinc-500 transition hover:bg-zinc-50 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
               >
                 {t("export.reexport")}
               </button>

@@ -14,6 +14,7 @@ import { pathToFileURL } from "node:url";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { initMainSentry, setMainTelemetryEnabled } from "./sentry";
 import { initAutoUpdater } from "./updater";
+import { registerMediaIpc } from "./media";
 import {
   buildAppMenu,
   setRecentProjects,
@@ -410,6 +411,8 @@ if (!gotLock) {
     readyRenderers.add(event.sender);
     flushPendingCommands(event.sender);
   });
+  // Native ffmpeg for audio extraction and export (see ./media.ts).
+  registerMediaIpc();
 
   app.on("before-quit", () => {
     quitting = true;

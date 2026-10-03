@@ -48,3 +48,6 @@ next-env.d.ts
 
 # runtime assets copied from node_modules on postinstall
 /public/vendor/
+
+# native ffmpeg for the desktop app (scripts/fetch-ffmpeg.mjs)
+/build/ffmpeg/

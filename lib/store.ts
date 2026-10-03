@@ -45,6 +45,12 @@ import {
   getProject,
 } from "./projects";
 import {
+  cancelNativeJobs,
+  discardNativeExport,
+  releaseNativeMedia,
+  setSourceHint,
+} from "./nativeMedia";
+import {
   addSpeaker as addSpeakerEntry,
   findSpeakerByName,
   moveSpeakerBoundary,
@@ -54,6 +60,38 @@ import {
   replaceSpeaker as replaceSpeakerEntry,
   speakersFromWords,
 } from "./speakers";
+
+/**
+ * A finished media export. The web build holds it as a Blob URL; the desktop
+ * app's native engine leaves it as a file in the main process's temp dir until
+ * the user saves it (`savedName` once they have).
+ */
+export type ExportResult =
+  | { kind: "blob"; url: string }
+  | { kind: "file"; outputId: string; size: number; savedName?: string };
+
+/** Whether two results refer to the same underlying URL / rendered file. */
+function sameExportResource(a: ExportResult, b: ExportResult): boolean {
+  if (a.kind === "blob") return b.kind === "blob" && a.url === b.url;
+  return b.kind === "file" && a.outputId === b.outputId;
+}
+
+/** Free whatever an export result holds onto. */
+function disposeExportResult(result: ExportResult | null): void {
+  if (!result) return;
+  if (result.kind === "blob") URL.revokeObjectURL(result.url);
+  else discardNativeExport(result.outputId);
+}
+
+/**
+ * Leaving a file behind: stop its native jobs, drop its render and hand back
+ * its registration (deleting the staged copy, if one was made).
+ */
+function releaseMediaResources(file: File | null, result: ExportResult | null): void {
+  cancelNativeJobs();
+  disposeExportResult(result);
+  releaseNativeMedia(file);
+}
 
 interface PendingTranscript {
   name: string;
@@ -137,7 +175,7 @@ interface EditorState {
   videoEl: HTMLMediaElement | null;
 
   // Export
-  exportUrl: string | null;
+  exportResult: ExportResult | null;
   exportOpen: boolean;
 
   // Actions
@@ -233,7 +271,8 @@ interface EditorState {
   setVideoEl: (el: HTMLMediaElement | null) => void;
   /** Play/pause, skipping out of cut ranges and restarting from the start if parked at the end. */
   togglePlayback: () => void;
-  setExportUrl: (url: string | null) => void;
+  /** Replace the current export result, freeing the previous one. */
+  setExportResult: (result: ExportResult | null) => void;
   setExportOpen: (open: boolean) => void;
   reset: () => void;
 }
@@ -359,7 +398,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   playing: false,
   videoEl: null,
 
-  exportUrl: null,
+  exportResult: null,
   exportOpen: false,
 
   loadVideo: (file, options) => {
@@ -369,6 +408,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (imported && imported.length === 0) return;
     const prev = get().mediaUrl;
     if (prev) URL.revokeObjectURL(prev);
+    const prevFile = get().videoFile;
+    releaseMediaResources(prevFile === file ? null : prevFile, get().exportResult);
     const current = get().source;
     const speakers = imported
       ? speakersFromWords(imported, options?.speakers ?? [])
@@ -403,7 +444,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       partialText: "",
       error: null,
       currentTime: 0,
-      exportUrl: null,
+      exportResult: null,
       waveform: null,
       hasAudio: false,
       duration: 0,
@@ -420,8 +461,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const record = await getProject(id);
     if (!record) throw new Error(en["error.projectMissing"]);
     const file = fileFromProject(record);
+    // The bytes come back from IndexedDB, but the desktop engine would rather
+    // read the original off disk than copy them out again — if it's unchanged.
+    if (record.sourcePath && record.sourceSize === record.media.size) {
+      setSourceHint(file, {
+        path: record.sourcePath,
+        size: record.sourceSize,
+        mtime: record.sourceMtime ?? 0,
+      });
+    }
     const prev = get().mediaUrl;
     if (prev) URL.revokeObjectURL(prev);
+    releaseMediaResources(get().videoFile, get().exportResult);
     const manualCuts = record.manualCuts ?? [];
     const sceneBoundaries = record.sceneBoundaries ?? [];
     const speakers = speakersFromWords(record.words, record.speakers ?? []);
@@ -455,7 +506,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       error: null,
       currentTime: 0,
       playing: false,
-      exportUrl: null,
+      exportResult: null,
       exportOpen: false,
       waveform: null,
       hasAudio: false,
@@ -964,13 +1015,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       media.pause();
     }
   },
-  setExportUrl: (exportUrl) => set({ exportUrl }),
+  setExportResult: (exportResult) => {
+    const prev = get().exportResult;
+    // Updating a result (e.g. recording where it was saved) keeps its file.
+    if (prev && !(exportResult && sameExportResource(prev, exportResult))) {
+      disposeExportResult(prev);
+    }
+    set({ exportResult });
+  },
   setExportOpen: (exportOpen) => set({ exportOpen }),
 
   reset: () => {
-    const { mediaUrl, exportUrl } = get();
+    const { mediaUrl, videoFile, exportResult } = get();
     if (mediaUrl) URL.revokeObjectURL(mediaUrl);
-    if (exportUrl) URL.revokeObjectURL(exportUrl);
+    releaseMediaResources(videoFile, exportResult);
     set({
       videoFile: null,
       mediaUrl: null,
@@ -1001,7 +1059,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       gestureActive: false,
       currentTime: 0,
       playing: false,
-      exportUrl: null,
+      exportResult: null,
       exportOpen: false,
     });
   },

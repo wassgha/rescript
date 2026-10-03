@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { useEditorStore } from "@/lib/store";
 import { getCutRanges, isWordCutOut } from "@/lib/edits";
-import { extractAudio, getFFmpeg, releaseFFmpeg } from "@/lib/ffmpeg";
+import { getFFmpeg, releaseFFmpeg } from "@/lib/ffmpeg";
+import { activeMediaEngine, extractAudio } from "@/lib/mediaEngine";
 import { VAD_SAMPLE_RATE } from "@/lib/vad";
 import { isNetworkError } from "@/lib/network";
 import { isElectron } from "@/lib/platform";
@@ -216,14 +217,26 @@ export default function Editor() {
     (async () => {
       const s = useEditorStore.getState();
       try {
-        s.setProgress({ message: en["progress.loadingMediaEngine"], value: null });
-        await getFFmpeg();
+        // The desktop app extracts with native ffmpeg in the main process, so
+        // there is no wasm core to load (or to release afterwards).
+        if ((await activeMediaEngine()) === "wasm") {
+          s.setProgress({ message: en["progress.loadingMediaEngine"], value: null });
+          await getFFmpeg();
+        }
         s.setProgress({ message: en["progress.extractingAudio"], value: null });
-        const audio = await extractAudio(videoFile);
+        const audio = await extractAudio(videoFile, (staging) => {
+          // A restored project whose original moved: its saved bytes are
+          // copied out for ffmpeg first, which takes a moment on big files.
+          s.setProgress({
+            message: en[staging ? "progress.preparingMedia" : "progress.extractingAudio"],
+            value: null,
+          });
+        });
         s.setAudio(audio);
         // ffmpeg's gigabyte is pure overhead from here until the user exports,
         // and holding it through model instantiation is what makes WebKit kill
-        // the tab. Export re-initialises it lazily from the HTTP cache.
+        // the tab. Export re-initialises it lazily from the HTTP cache. A no-op
+        // when nothing was loaded.
         await releaseFFmpeg();
         if (restoreOnly || !audio) {
           s.setStatus("ready");
