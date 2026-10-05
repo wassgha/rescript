@@ -211,6 +211,9 @@ export function useTranscriptSelection({
 
     const updateFromNativeSelection = (mode: SelectionSyncMode) => {
       if (freezeSelectionRef.current) return;
+      // The screen-reader textarea syncs its own selection into the store;
+      // the document selection is meaningless while it has focus.
+      if (document.activeElement?.hasAttribute("data-transcript-text")) return;
       const container = containerRef.current;
       const sel = window.getSelection();
 
