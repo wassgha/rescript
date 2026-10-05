@@ -35,7 +35,7 @@ import type { Translate } from "@/lib/i18n";
 
 type PickerMode = "change" | "rename" | "replace";
 
-function localizedSpeakerName(name: string, t: Translate): string {
+export function localizedSpeakerName(name: string, t: Translate): string {
   const match = /^Speaker (\d+)$/.exec(name);
   return match ? t("speaker.defaultName", { number: match[1] }) : name;
 }

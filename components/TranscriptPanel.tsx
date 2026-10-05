@@ -26,6 +26,7 @@ import {
 } from "@/lib/parseTranscript";
 import type { Word } from "@/lib/types";
 import TranscriptScrollIndicator from "./TranscriptScrollIndicator";
+import TranscriptTextLayer from "./TranscriptTextLayer";
 import SpeakerLabel, {
   SelectionSpeakerButton,
   SelectionSpeakerPopover,
@@ -162,6 +163,8 @@ export default function TranscriptPanel() {
   } | null>(null);
   // Mirrors Correct / Speaker pickers so selection handlers freeze highlights.
   const freezeSelectionRef = useRef(false);
+  // Correct opened from the screen-reader textarea hands focus back on close.
+  const correctReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const {
     selection,
@@ -260,23 +263,35 @@ export default function TranscriptPanel() {
     clearSelection();
   }, [selection, restoreWords, clearSelection]);
 
-  const openCorrect = useCallback(() => {
-    if (!selection) return;
-    const idSet = new Set(selection.ids);
-    const text = words
-      .filter((w) => idSet.has(w.id))
-      .map((w) => w.text)
-      .join(" ");
-    freezeSelectionRef.current = true;
-    setCorrectText(text);
-    setCorrecting({ ids: selection.ids });
-    releaseToolbar();
-  }, [selection, words, releaseToolbar]);
+  const openCorrect = useCallback(
+    (ids: number[]) => {
+      const idSet = new Set(ids);
+      const text = words
+        .filter((w) => idSet.has(w.id))
+        .map((w) => w.text)
+        .join(" ");
+      freezeSelectionRef.current = true;
+      setCorrectText(text);
+      setCorrecting({ ids });
+      releaseToolbar();
+    },
+    [words, releaseToolbar]
+  );
+
+  const openCorrectFromText = useCallback(
+    (ids: number[], returnFocus: HTMLElement) => {
+      correctReturnFocusRef.current = returnFocus;
+      openCorrect(ids);
+    },
+    [openCorrect]
+  );
 
   const closeCorrect = useCallback(() => {
     freezeSelectionRef.current = false;
     clearMarks();
     setCorrecting(null);
+    correctReturnFocusRef.current?.focus();
+    correctReturnFocusRef.current = null;
   }, [clearMarks]);
 
   const openSpeakerAssign = useCallback(() => {
@@ -394,6 +409,10 @@ export default function TranscriptPanel() {
         </div>
       </div>
 
+      {status === "ready" && words.length > 0 && (
+        <TranscriptTextLayer cutOutIds={cutOutIds} onCorrect={openCorrectFromText} />
+      )}
+
       <div
         ref={scrollRef}
         className="scrollbar-none relative min-h-0 flex-1 overflow-y-auto pt-10 scroll-pt-10"
@@ -510,7 +529,7 @@ export default function TranscriptPanel() {
                   </button>
                 )}
                 <button
-                  onClick={openCorrect}
+                  onClick={() => openCorrect(selection.ids)}
                   className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
                 >
                   <Pencil size={13} />
