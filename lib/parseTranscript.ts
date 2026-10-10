@@ -76,6 +76,24 @@ export async function parseTranscriptFile(file: File): Promise<ParsedTranscript>
   return parseTranscript(text, file.name);
 }
 
+/**
+ * Take the file the user just picked out of a file input and reset the input.
+ *
+ * Read the file *before* clearing, because `input.files` is a live
+ * `[SameObject]` FileList: assigning `input.value = ""` empties the same object
+ * any earlier `input.files` reference points at, so a handler that clears first
+ * and reads after sees an empty list and drops the file. Clearing afterwards is
+ * what lets the user pick the same file again.
+ *
+ * Measured in Chromium 130: `const files = input.files; input.value = "";`
+ * leaves `files.length === 0` and `files[0] === undefined`.
+ */
+export function takeSelectedTranscriptFile(input: HTMLInputElement): File | null {
+  const file = input.files?.[0] ?? null;
+  input.value = "";
+  return file;
+}
+
 function looksLikeJson(text: string): boolean {
   const c = text[0];
   return c === "[" || c === "{";
