@@ -1,4 +1,6 @@
+import { addManualCut, getCutRanges, isWordCutOut } from "../lib/edits";
 import {
+  findSilenceCuts,
   findSilenceRanges,
   MIN_SILENCE_DURATION,
   SILENCE_PAD,
@@ -107,6 +109,24 @@ function assert(cond: boolean, msg: string): void {
   const second = findSilenceRanges(words, 5.0, manual);
   assert(second.length === 0, `expected no remaining silences, got ${second.length}`);
   console.log("idempotent after cut: ok");
+}
+
+{
+  // A short word between two pauses must survive "Remove silences", and both
+  // pauses must stay restorable (the two cuts used to merge across the word).
+  const words = [w(1, 0, 1), w(2, 2, 2.15), w(3, 3, 4)];
+  let manual: ManualCut[] = [];
+  let nextId = 1;
+  for (const r of findSilenceRanges(words, 4)) {
+    const added = addManualCut(manual, r.start, r.end, nextId);
+    manual = added.cuts;
+    nextId = added.nextId;
+  }
+  assert(manual.length === 2, `expected 2 silence cuts, got ${manual.length}`);
+  const cuts = getCutRanges(words, 4, manual);
+  assert(!isWordCutOut(words[1]!, cuts), "short word stays in the edit");
+  assert(findSilenceCuts(words, manual).length === 2, "both silences restorable");
+  console.log("short word between silences: ok");
 }
 
 console.log("ALL SILENCE TESTS PASSED");

@@ -39,7 +39,11 @@ export function getWordCutRanges(words: Word[], duration: number): TimeRange[] {
 }
 
 /** Merge overlapping / near-adjacent ranges and clamp to [0, duration]. */
-export function mergeCutRanges(ranges: TimeRange[], duration: number): TimeRange[] {
+export function mergeCutRanges(
+  ranges: TimeRange[],
+  duration: number,
+  gap = MERGE_GAP
+): TimeRange[] {
   if (ranges.length === 0) return [];
   const sorted = [...ranges]
     .map((r) => ({
@@ -52,7 +56,7 @@ export function mergeCutRanges(ranges: TimeRange[], duration: number): TimeRange
   const merged: TimeRange[] = [];
   for (const r of sorted) {
     const last = merged[merged.length - 1];
-    if (last && r.start - last.end < MERGE_GAP) {
+    if (last && r.start - last.end < gap) {
       last.end = Math.max(last.end, r.end);
     } else {
       merged.push({ ...r });
@@ -72,7 +76,24 @@ export function getCutRanges(
 ): TimeRange[] {
   const fromWords = getWordCutRanges(words, duration);
   const fromManual = manualCuts.map((c) => ({ start: c.start, end: c.end }));
-  return mergeCutRanges([...fromWords, ...fromManual], duration);
+  // Bridge short gaps between cuts, but never across a kept word: a short
+  // word between two pauses cut by "Remove silences" has to stay audible.
+  const exact = mergeCutRanges([...fromWords, ...fromManual], duration, 1e-4);
+  const kept = words.filter((w) => !w.deleted);
+  const merged: TimeRange[] = [];
+  for (const r of exact) {
+    const last = merged[merged.length - 1];
+    if (
+      last &&
+      r.start - last.end < MERGE_GAP &&
+      !kept.some((w) => w.end > last.end + 1e-4 && w.start < r.start - 1e-4)
+    ) {
+      last.end = Math.max(last.end, r.end);
+    } else {
+      merged.push({ ...r });
+    }
+  }
+  return merged;
 }
 
 /** Invert cut ranges into the ranges of the original media that remain. */
@@ -405,7 +426,8 @@ export function addManualCut(
   if (end - start < 1e-4) return { cuts: manualCuts, nextId };
   const merged = mergeCutRanges(
     [...manualCuts.map((c) => ({ start: c.start, end: c.end })), { start, end }],
-    Number.POSITIVE_INFINITY
+    Number.POSITIVE_INFINITY,
+    1e-4
   );
   // Rebuild with stable-ish ids: keep old ids when a merged range covers an old cut's midpoint
   let id = nextId;
