@@ -1,5 +1,5 @@
 import type { UiLocale } from "@/lib/i18n/locales";
-import type { ExportRequest } from "@/lib/exportArgs";
+import type { ExportRequest, FrameRate } from "@/lib/exportArgs";
 
 /** Resting sizes the Electron shell switches between. */
 export type WindowMode = "compact" | "expanded";
@@ -44,9 +44,13 @@ export interface RescriptDesktopMedia {
     onProgress?: (ratio: number) => void
   ) => Promise<NativeMediaResult<{ mediaId: string }>>;
   releaseMedia: (mediaId: string) => Promise<NativeMediaResult>;
+  /** `frameRate` is the video stream's rate, also reported when there's no audio. */
   extractAudio: (
     mediaId: string
-  ) => Promise<NativeMediaResult<{ pcmId: string; byteLength: number }>>;
+  ) => Promise<
+    | { ok: true; pcmId: string; byteLength: number; frameRate: FrameRate | null }
+    | { ok: false; code: NativeMediaFailure; detail?: string; frameRate?: FrameRate | null }
+  >;
   readPcm: (
     pcmId: string,
     offset: number,

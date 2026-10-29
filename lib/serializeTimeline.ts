@@ -3,8 +3,8 @@
  *
  * XML / FCPXML go through @chatoctopus/timeline writers (imported from dist
  * subpaths to avoid pulling the Node-only ffprobe helper into the browser
- * bundle). AAF is produced by patching a vendored metadata-only scaffold.
- * Reaper `.rpp` and Samplitude `.edl` are written as plain text.
+ * bundle). AAF and Blender `.blend` are produced by patching vendored
+ * scaffolds. Reaper `.rpp` and Samplitude `.edl` are written as plain text.
  */
 
 import { writeFCPXML } from "../node_modules/@chatoctopus/timeline/dist/fcpxml/writer.js";
@@ -19,6 +19,8 @@ import {
   writeAafComposition,
   type AafFrameRate,
 } from "@/lib/aaf/patchAaf";
+import { writeBlendProject } from "@/lib/blend/writeBlend";
+import type { FrameRate } from "@/lib/exportArgs";
 import type { TimeRange } from "@/lib/types";
 
 export type TimelineExportFormat =
@@ -27,7 +29,8 @@ export type TimelineExportFormat =
   | "fcpx"
   | "aaf"
   | "reaper"
-  | "samplitude";
+  | "samplitude"
+  | "blender";
 
 export type TimelineFrameRate = AafFrameRate;
 
@@ -63,6 +66,8 @@ export const TIMELINE_FORMATS: {
     ext: "edl",
     needsFrameRate: false,
   },
+  // Uses the source's own frame rate; the dialog asks only if it's unknown.
+  { value: "blender", label: "Blender", ext: "blend", needsFrameRate: false },
 ];
 
 export interface TimelineExportOptions {
@@ -77,6 +82,8 @@ export interface TimelineExportOptions {
   width?: number;
   height?: number;
   audioRate?: number;
+  /** The source video's own frame rate, when known (Blender needs the real one). */
+  sourceFrameRate?: FrameRate | null;
 }
 
 function frameRateRational(frameRate: TimelineFrameRate) {
@@ -417,7 +424,26 @@ export async function serializeTimelineAaf(
   });
 }
 
-/** Trigger a browser download for an XML/FCPXML string or AAF blob. */
+/**
+ * Blender's scene rate must equal the source's, or strips play at the wrong
+ * speed; the NLE frame-rate pick is only the fallback when it's unknown.
+ */
+export async function serializeTimelineBlend(
+  options: TimelineExportOptions
+): Promise<Blob> {
+  return writeBlendProject({
+    keepRanges: options.keepRanges,
+    duration: options.duration,
+    mediaFileName: options.mediaFileName,
+    frameRate: options.sourceFrameRate ?? frameRateRational(options.frameRate),
+    withVideo: options.withVideo,
+    withAudio: options.withAudio,
+    width: options.width ?? 1920,
+    height: options.height ?? 1080,
+  });
+}
+
+/** Trigger a browser download for an XML/FCPXML string or AAF/.blend blob. */
 export function downloadTimelineBlob(
   data: string | Blob,
   filename: string,
@@ -449,6 +475,12 @@ export async function downloadTimelineExport(
   if (format === "aaf") {
     const blob = await serializeTimelineAaf(options);
     downloadTimelineBlob(blob, filename, "application/octet-stream");
+    return;
+  }
+
+  if (format === "blender") {
+    const blob = await serializeTimelineBlend(options);
+    downloadTimelineBlob(blob, filename, "application/x-blender");
     return;
   }
 

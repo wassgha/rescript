@@ -44,10 +44,12 @@ import {
   buildVideoExport,
   extractAudioArgs,
   parseExportRequest,
+  parseVideoFrameRate,
   progressRatio,
   VIDEOTOOLBOX_QUALITY,
   type ExportPlan,
   type ExportRequest,
+  type FrameRate,
 } from "../lib/exportArgs";
 import {
   isNoSpace,
@@ -74,6 +76,8 @@ export type MediaFailure =
   | "invalid";
 
 type Fail = { ok: false; code: MediaFailure; detail?: string };
+/** A file with no audio track still reports its video frame rate. */
+type NoAudio = Fail & { code: "no-audio"; frameRate: FrameRate | null };
 
 /** Largest chunk the renderer may stage or read in one IPC message. */
 const MAX_CHUNK_BYTES = 64 * 1024 * 1024;
@@ -457,6 +461,7 @@ export function registerMediaIpc(): void {
 
     const out = tempPath(".f32");
     let sawAudio = false;
+    let frameRate: FrameRate | null = null;
     const jobId = randomUUID();
     const controller = new AbortController();
     jobs.set(jobId, { controller, owner: event.sender.id });
@@ -464,6 +469,7 @@ export function registerMediaIpc(): void {
       signal: controller.signal,
       onStderrLine: (line) => {
         if (AUDIO_STREAM_RE.test(line)) sawAudio = true;
+        frameRate ??= parseVideoFrameRate(line);
       },
     });
     jobs.delete(jobId);
@@ -471,7 +477,7 @@ export function registerMediaIpc(): void {
       await removeQuietly(out);
       // No audio stream: "Output file does not contain any stream" — not an error.
       if (outcome.code === "failed" && !sawAudio) {
-        return { ok: false, code: "no-audio" } satisfies Fail;
+        return { ok: false, code: "no-audio", frameRate } satisfies NoAudio;
       }
       return failFromRun(outcome);
     }
@@ -479,11 +485,11 @@ export function registerMediaIpc(): void {
       const { size } = await stat(out);
       if (size < 4) {
         await removeQuietly(out);
-        return { ok: false, code: "no-audio" } satisfies Fail;
+        return { ok: false, code: "no-audio", frameRate } satisfies NoAudio;
       }
       const pcmId = randomUUID();
       pcms.set(pcmId, { path: out, size, owner: event.sender.id });
-      return { ok: true, pcmId, byteLength: size };
+      return { ok: true, pcmId, byteLength: size, frameRate };
     } catch (err) {
       return ioFail(err);
     }

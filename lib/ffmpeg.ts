@@ -9,11 +9,14 @@ import {
   buildAudioExport,
   buildVideoExport,
   extractAudioArgs,
+  parseVideoFrameRate,
   progressRatio,
   type AudioExportOptions,
   type ExportPlan,
+  type FrameRate,
   type VideoExportOptions,
 } from "./exportArgs";
+import { setVideoFrameRate } from "./media";
 
 export type {
   AudioExportFormat,
@@ -390,8 +393,10 @@ export async function extractAudio(file: File): Promise<Float32Array | null> {
   const input = await ensureInput(ffmpeg, file);
   const out = "audio.pcm";
   let sawAudioStream = false;
+  let frameRate: FrameRate | null = null;
   const logHandler = ({ message }: { type: string; message: string }) => {
     if (AUDIO_STREAM_RE.test(message)) sawAudioStream = true;
+    frameRate ??= parseVideoFrameRate(message);
   };
   ffmpeg.on("log", logHandler);
   let code: number;
@@ -400,6 +405,7 @@ export async function extractAudio(file: File): Promise<Float32Array | null> {
   } finally {
     ffmpeg.off("log", logHandler);
   }
+  if (frameRate) setVideoFrameRate(file, frameRate);
   if (code !== 0) {
     if (!sawAudioStream) return null;
     throw new Error(en["error.extractAudio"]);

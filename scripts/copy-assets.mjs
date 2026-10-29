@@ -6,6 +6,7 @@
  *   - onnxruntime-web  -> public/vendor/ort/        (transformers.js inference)
  *   - parakeet.js ORT  -> public/vendor/ort-parakeet/ (Parakeet TDT inference)
  *   - assets/aaf       -> public/vendor/aaf/        (Pro Tools / Logic AAF scaffold)
+ *   - assets/blend     -> public/vendor/blend/      (Blender .blend scaffold)
  * Runs automatically on `npm install` (postinstall).
  */
 import {
@@ -120,6 +121,11 @@ for (const f of readdirSync(aafSrc)) {
   cpSync(join(aafSrc, f), join(aafDst, f));
 }
 
+// Video Editing .blend scaffold for Blender timeline export.
+const blendDst = join(root, "public/vendor/blend");
+mkdirSync(blendDst, { recursive: true });
+cpSync(join(root, "assets/blend/scaffold.blend"), join(blendDst, "scaffold.blend"));
+
 console.log(
-  "[copy-assets] ffmpeg cores (mt+st) + onnxruntime wasm + aaf scaffold copied to public/"
+  "[copy-assets] ffmpeg cores (mt+st) + onnxruntime wasm + aaf/blend scaffolds copied to public/"
 );

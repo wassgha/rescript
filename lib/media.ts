@@ -1,3 +1,5 @@
+import type { FrameRate } from "./exportArgs";
+
 /** Supported media kinds for the editor. */
 export type MediaKind = "video" | "audio";
 
@@ -13,3 +15,15 @@ export function detectMediaKind(file: File): MediaKind | null {
 
 export const MEDIA_ACCEPT =
   "video/*,audio/*,.mp4,.webm,.mov,.mkv,.m4v,.mp3,.wav,.m4a,.aac,.ogg,.flac,.opus";
+
+const frameRates = new WeakMap<File, FrameRate>();
+
+/** Remember the video frame rate ffmpeg reported while extracting `file`'s audio. */
+export function setVideoFrameRate(file: File, rate: FrameRate): void {
+  frameRates.set(file, rate);
+}
+
+/** The source video's frame rate, once its audio has been extracted. */
+export function videoFrameRateFor(file: File): FrameRate | null {
+  return frameRates.get(file) ?? null;
+}

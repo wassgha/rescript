@@ -174,7 +174,7 @@ export const zhTW: Record<MessageKey, string> = {
   "export.downloadFormat": "下載 .{format}",
   "export.exportFormat": "匯出 {format}",
   "export.timeline": "時間軸",
-  "export.timelineTitle": "匯出 NLE / DAW 序列（Resolve、Premiere、Final Cut、Pro Tools、Reaper）",
+  "export.timelineTitle": "匯出 NLE / DAW 序列（Resolve、Premiere、Final Cut、Pro Tools、Reaper、Blender）",
   "export.nle": "格式",
   "export.frameRate": "幀率",
   "export.timelineHelp": "序列依檔名引用原始媒體 — 匯入後請在 NLE 中重新連結。",
@@ -185,6 +185,8 @@ export const zhTW: Record<MessageKey, string> = {
   "export.timelineHelpReaper": "Reaper 專案（.rpp）。",
   "export.timelineHelpSamplitude":
     "Samplitude EDL（.edl）— 也可在 Reaper 中直接開啟。",
+  "export.timelineHelpBlender":
+    "Blender 影片剪輯專案（.blend，Blender 5.2 以上）— 請儲存在與原始媒體相同的資料夾中。",
   "export.aafOverCap":
     "此編輯有 {count} 個片段；AAF 最多支援 {max} 個。請改用 Resolve、Premiere、Final Cut、Reaper 或 Samplitude EDL。",
   "export.preparing": "正在準備…",
