@@ -20,6 +20,9 @@ export const fr: Record<MessageKey, string> = {
   "settings.light": "Clair",
   "settings.dark": "Sombre",
   "settings.interfaceLanguage": "Langue de l’interface",
+  "settings.silenceThreshold": "Seuil de silence",
+  "settings.silenceThresholdHelp":
+    "Durée de pause minimale avant que « Retirer les silences » la coupe.",
   "settings.privacy": "Confidentialité",
   "settings.helpImprove": "Aider à améliorer l’app",
   "settings.telemetryHelp": "Envoyer des statistiques anonymes d’utilisation des fonctionnalités et des rapports de plantage.",

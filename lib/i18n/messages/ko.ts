@@ -20,6 +20,8 @@ export const ko: Record<MessageKey, string> = {
   "settings.light": "라이트",
   "settings.dark": "다크",
   "settings.interfaceLanguage": "인터페이스 언어",
+  "settings.silenceThreshold": "무음 기준 길이",
+  "settings.silenceThresholdHelp": "\"무음 제거\"가 잘라낼 최소 멈춤 길이입니다.",
   "settings.privacy": "개인정보",
   "settings.helpImprove": "앱 개선에 참여",
   "settings.telemetryHelp": "익명의 기능 사용 통계와 충돌 보고서를 보냅니다.",

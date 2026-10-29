@@ -20,6 +20,8 @@ export const ja: Record<MessageKey, string> = {
   "settings.light": "ライト",
   "settings.dark": "ダーク",
   "settings.interfaceLanguage": "表示言語",
+  "settings.silenceThreshold": "無音のしきい値",
+  "settings.silenceThresholdHelp": "「無音を削除」が切り取る、無音とみなす最短の長さです。",
   "settings.privacy": "プライバシー",
   "settings.helpImprove": "アプリの改善に協力",
   "settings.telemetryHelp": "匿名の機能利用統計とクラッシュレポートを送信します。",

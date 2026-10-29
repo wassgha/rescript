@@ -13,9 +13,14 @@ import {
 } from "./SocialLinks";
 import { useAppearance } from "@/hooks/useAppearance";
 import { useTelemetryPref } from "@/hooks/useTelemetryPref";
+import { useSilenceThreshold } from "@/hooks/useSilenceThreshold";
 import Popover, { PopoverContent, PopoverTrigger } from "./Popover";
 import type { Appearance } from "@/lib/theme";
 import { useI18n } from "./I18nProvider";
+import {
+  MAX_SILENCE_THRESHOLD,
+  MIN_SILENCE_THRESHOLD,
+} from "@/lib/silenceThreshold";
 import {
   UI_LOCALES,
   UI_LOCALE_META,
@@ -43,6 +48,8 @@ export default function SettingsMenu() {
   const panelId = useId();
   const { appearance, setAppearance } = useAppearance();
   const { enabled: telemetry, setEnabled: setTelemetry } = useTelemetryPref();
+  const { threshold: silenceThreshold, setThreshold: setSilenceThreshold } =
+    useSilenceThreshold();
   const { t, preference, setPreference } = useI18n();
 
   return (
@@ -119,6 +126,29 @@ export default function SettingsMenu() {
                 ))}
               </select>
             </label>
+          </section>
+
+          <section className="border-b border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+            <label className="block text-[11px] font-medium tracking-wide text-zinc-400 dark:text-zinc-500">
+              {t("settings.silenceThreshold")}
+              <span className="float-right tabular-nums text-zinc-500 dark:text-zinc-400">
+                {silenceThreshold.toFixed(1)}s
+              </span>
+              <input
+                type="range"
+                min={MIN_SILENCE_THRESHOLD}
+                max={MAX_SILENCE_THRESHOLD}
+                step={0.1}
+                value={silenceThreshold}
+                onChange={(event) => setSilenceThreshold(Number(event.target.value))}
+                aria-label={t("settings.silenceThreshold")}
+                aria-valuetext={`${silenceThreshold.toFixed(1)}s`}
+                className="mt-2 block h-1.5 w-full cursor-pointer accent-zinc-700 dark:accent-zinc-300"
+              />
+            </label>
+            <p className="mt-1.5 text-[11px] leading-snug text-zinc-400 dark:text-zinc-500">
+              {t("settings.silenceThresholdHelp")}
+            </p>
           </section>
 
           <section className="border-b border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800">

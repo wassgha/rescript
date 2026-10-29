@@ -20,6 +20,8 @@ export const zhTW: Record<MessageKey, string> = {
   "settings.light": "淺色",
   "settings.dark": "深色",
   "settings.interfaceLanguage": "介面語言",
+  "settings.silenceThreshold": "靜音門檻",
+  "settings.silenceThresholdHelp": "停頓要多長，「移除靜音」才會剪掉它。",
   "settings.privacy": "隱私",
   "settings.helpImprove": "協助改善應用程式",
   "settings.telemetryHelp": "傳送匿名功能使用統計與當機報告。",

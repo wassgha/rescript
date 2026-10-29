@@ -55,6 +55,28 @@ function assert(cond: boolean, msg: string): void {
 }
 
 {
+  // A user-lowered threshold (Settings → silence threshold) picks up a gap
+  // the built-in default would ignore, and a raised one ignores a gap the
+  // default would pick up — the knob actually reaches this function.
+  const words = [w(1, 0.5, 1.0), w(2, 1.15, 1.5)]; // 0.15s gap
+  const atDefault = findSilenceRanges(words, 1.5);
+  assert(atDefault.length === 1, "default threshold ignores the 0.15s gap");
+  const lowered = findSilenceRanges(words, 1.5, [], 0.1);
+  assert(lowered.length === 2, "a 0.1s threshold catches the 0.15s gap");
+
+  // No leading/trailing gap (word spans the media edges), isolating the one
+  // 1.0s inter-word gap.
+  const oneGap = [w(1, 0, 1.0), w(2, 2.0, 3.0)];
+  assert(
+    findSilenceRanges(oneGap, 3.0).length === 1,
+    "default 0.3s threshold catches the 1.0s inter-word gap"
+  );
+  const raised = findSilenceRanges(oneGap, 3.0, [], 1.5);
+  assert(raised.length === 0, "a 1.5s threshold ignores that same 1.0s gap");
+  console.log("custom threshold reaches findSilenceRanges: ok");
+}
+
+{
   // Exactly at the threshold (before pad) should be detected.
   const gap = MIN_SILENCE_DURATION;
   const words = [w(1, 0, 1), w(2, 1 + gap, 2)];

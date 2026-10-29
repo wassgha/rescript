@@ -20,6 +20,9 @@ export const de: Record<MessageKey, string> = {
   "settings.light": "Hell",
   "settings.dark": "Dunkel",
   "settings.interfaceLanguage": "Sprache der Oberfläche",
+  "settings.silenceThreshold": "Stille-Schwelle",
+  "settings.silenceThresholdHelp":
+    "Wie lange eine Pause sein muss, bevor „Stille entfernen“ sie schneidet.",
   "settings.privacy": "Datenschutz",
   "settings.helpImprove": "Hilf mit, die App zu verbessern",
   "settings.telemetryHelp": "Anonyme Statistiken zur Funktionsnutzung und Absturzberichte senden.",
