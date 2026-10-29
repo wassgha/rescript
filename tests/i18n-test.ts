@@ -27,6 +27,7 @@ assert(resolveUiLocale("system", ["es-MX"]) === "es", "spanish detection");
 assert(resolveUiLocale("system", ["fr-CA"]) === "fr", "french detection");
 assert(resolveUiLocale("system", ["de-AT"]) === "de", "german detection");
 assert(resolveUiLocale("system", ["pt-BR"]) === "pt", "portuguese detection");
+assert(resolveUiLocale("system", ["it-IT"]) === "it", "italian detection");
 assert(resolveUiLocale("system", ["pt-PT", "en-US"]) === "pt", "portuguese ordered");
 assert(resolveUiLocale("system", ["fr-FR", "en-US"]) === "fr", "ordered fallback");
 assert(resolveUiLocale("system", ["xx-YY", "en-US"]) === "en", "unsupported then en");
@@ -38,6 +39,7 @@ assert(translate("zh-CN", "common.settings") === "设置", "Chinese settings");
 assert(translate("ja", "common.settings") === "設定", "Japanese settings");
 assert(translate("es", "common.settings") === "Ajustes", "Spanish settings");
 assert(translate("pt", "common.settings") === "Configurações", "Portuguese settings");
+assert(translate("it", "common.settings") === "Impostazioni", "Italian settings");
 assert(
   translate("de", "export.downloadFile", { name: "demo.mp4" }).includes("demo.mp4"),
   "named interpolation"
@@ -82,6 +84,7 @@ for (const locale of UI_LOCALES) {
 const nsis = nsisInstallerLanguages();
 assert(nsis.includes("en_US") && nsis.includes("ja_JP") && nsis.includes("zh_TW"), "nsis codes");
 assert(nsis.includes("pt_BR"), "nsis includes Portuguese");
+assert(nsis.includes("it_IT"), "nsis includes Italian");
 
 const boot = buildLocaleBootScript();
 assert(boot.includes("zh-TW"), "boot script knows Traditional Chinese");

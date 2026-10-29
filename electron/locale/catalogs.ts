@@ -6,6 +6,7 @@ import { fr } from "./fr";
 import { ja } from "./ja";
 import { ko } from "./ko";
 import { pt } from "./pt";
+import { it } from "./it";
 import { zhCN } from "./zh-CN";
 import { zhTW } from "./zh-TW";
 
@@ -21,4 +22,5 @@ export const desktopCatalogs: Record<UiLocale, DesktopMessageCatalog> = {
   fr,
   de,
   pt,
+  it,
 };
