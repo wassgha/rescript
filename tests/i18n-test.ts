@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import {
   UI_LOCALES,
   buildLocaleBootScript,
@@ -85,6 +87,12 @@ const nsis = nsisInstallerLanguages();
 assert(nsis.includes("en_US") && nsis.includes("ja_JP") && nsis.includes("zh_TW"), "nsis codes");
 assert(nsis.includes("pt_BR"), "nsis includes Portuguese");
 assert(nsis.includes("it_IT"), "nsis includes Italian");
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const packagedNsisLanguages = packageJson.build?.nsis?.installerLanguages;
+assert(Array.isArray(packagedNsisLanguages), "package has NSIS installer languages");
+for (const language of nsis) {
+  assert(packagedNsisLanguages.includes(language), `package includes NSIS language ${language}`);
+}
 
 const boot = buildLocaleBootScript();
 assert(boot.includes("zh-TW"), "boot script knows Traditional Chinese");

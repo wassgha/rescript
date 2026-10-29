@@ -162,7 +162,8 @@
         "es_ES",
         "fr_FR",
         "de_DE",
-        "pt_BR"
+        "pt_BR",
+        "it_IT"
       ],
       "multiLanguageInstaller": true,
       "artifactName": "${productName}-Setup.${ext}"
