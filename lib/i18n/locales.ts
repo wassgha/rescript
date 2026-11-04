@@ -16,6 +16,7 @@ export const UI_LOCALES = [
   "de",
   "pt",
   "it",
+  "sv",
 ] as const;
 
 export type UiLocale = (typeof UI_LOCALES)[number];
@@ -100,6 +101,11 @@ export const UI_LOCALE_META: Record<UiLocale, UiLocaleMeta> = {
     nsis: "pt_BR",
     match: prefix("pt"),
   },
+  sv: {
+    htmlLang: "sv",
+    nativeLabel: "Svenska",
+    match: prefix("sv"),
+  },
   it: {
     htmlLang: "it",
     nativeLabel: "Italiano",
@@ -127,6 +133,7 @@ const MATCH_ORDER: readonly UiLocale[] = [
   "de",
   "pt",
   "it",
+  "sv",
   "en",
 ];
 

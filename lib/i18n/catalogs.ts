@@ -1,3 +1,4 @@
+import { sv } from "./messages/sv";
 import { en, type MessageKey } from "./messages/en";
 import { de } from "./messages/de";
 import { es } from "./messages/es";
@@ -14,6 +15,7 @@ export type MessageCatalog = Record<MessageKey, string>;
 
 export const catalogs: Record<UiLocale, MessageCatalog> = {
   en,
+  sv,
   "zh-CN": zhCN,
   "zh-TW": zhTW,
   ja,
