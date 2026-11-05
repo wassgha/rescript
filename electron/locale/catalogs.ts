@@ -1,3 +1,4 @@
+import { sv } from "./sv";
 import type { UiLocale } from "../../lib/i18n/locales";
 import { de } from "./de";
 import { en, type DesktopMessageKey } from "./en";
@@ -14,6 +15,7 @@ export type DesktopMessageCatalog = Record<DesktopMessageKey, string>;
 
 export const desktopCatalogs: Record<UiLocale, DesktopMessageCatalog> = {
   en,
+  sv,
   "zh-CN": zhCN,
   "zh-TW": zhTW,
   ja,
