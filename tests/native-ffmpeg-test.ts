@@ -160,6 +160,80 @@ function staticChecks() {
     }).slice(0, 4).join(" ") === "-hwaccel videotoolbox -i in.mov",
     "hardware decode is an input option"
   );
+
+  // A reordered edit opens the file once per run, each with its own seek; the
+  // hardware decoder is an input option, so it repeats before every -i.
+  const head = (args: string[]) => args.slice(0, args.indexOf("-filter_complex_script")).join(" ");
+  const reordered = buildVideoExport([
+    { start: 12.457, end: 15.2 },
+    { start: 3.333, end: 5 },
+  ]);
+  assert(
+    head(nativeExportArgs("in.mov", "g.txt", reordered, "o.mp4")) ===
+      "-ss 10 -t 6.200 -i in.mov -ss 1 -t 5.000 -i in.mov",
+    "every run opens the input with its own -ss / -t"
+  );
+  assert(
+    head(nativeExportArgs("in.mov", "g.txt", reordered, "o.mp4", { hardwareDecode: true })) ===
+      "-hwaccel videotoolbox -ss 10 -t 6.200 -i in.mov -hwaccel videotoolbox -ss 1 -t 5.000 -i in.mov",
+    "hardware decode precedes every input"
+  );
+  assert(
+    head(nativeExportArgs("in.mov", "g.txt", buildAudioExport([{ start: 12.457, end: 15.2 }]), "o.m4a")) ===
+      "-i in.mov",
+    "a monotonic edit opens the input plain"
+  );
+}
+
+/** Every range trimmed from the one input 0: the graph a reordered edit must still render as. */
+function singleInputFilter(ranges: Array<{ start: number; end: number }>): string {
+  const parts = ranges.flatMap((r, i) => {
+    const window = `start=${r.start.toFixed(3)}:end=${r.end.toFixed(3)}`;
+    return [
+      `[0:v]trim=${window},setpts=PTS-STARTPTS[v${i}]`,
+      `[0:a]atrim=${window},asetpts=PTS-STARTPTS[a${i}]`,
+    ];
+  });
+  const labels = ranges.map((_, i) => `[v${i}][a${i}]`).join("");
+  return `${parts.join(";")};${labels}concat=n=${ranges.length}:v=1:a=1[outv][outa]`;
+}
+
+/**
+ * What a graph produces before any encoder: the video's per-frame hashes and
+ * the audio's total size in bytes. `inputs` are the per-`-i` options.
+ */
+function graphDigest(
+  bin: string,
+  dir: string,
+  input: string,
+  inputs: string[][],
+  filter: string,
+  name: string
+): { video: string[]; audioBytes: number } {
+  const graph = join(dir, `${name}.txt`);
+  writeFileSync(graph, filter);
+  const video = join(dir, `${name}-video.md5`);
+  const audio = join(dir, `${name}-audio.md5`);
+  const run = spawnSync(
+    bin,
+    [
+      "-hide_banner", "-loglevel", "error", "-nostdin",
+      ...inputs.flatMap((options) => [...options, "-i", input]),
+      "-filter_complex_script", graph,
+      "-map", "[outv]", "-f", "framemd5", "-y", video,
+      "-map", "[outa]", "-f", "framemd5", "-y", audio,
+    ],
+    { encoding: "utf8" }
+  );
+  assert(run.status === 0, `${name}: ${run.stderr}`);
+  const rows = (file: string) =>
+    readFileSync(file, "utf8")
+      .split("\n")
+      .filter((line) => line && !line.startsWith("#"));
+  return {
+    video: rows(video),
+    audioBytes: rows(audio).reduce((bytes, row) => bytes + Number(row.split(",")[4]), 0),
+  };
 }
 
 async function render(
@@ -222,6 +296,17 @@ async function main() {
       "-c:a", "aac", "-shortest", "-y", input,
     ]);
     assert(made.status === 0, `fixture: ${made.stderr}`);
+    // The same source with its timestamps starting at 5 s, as a screen
+    // recording or a trimmed phone clip does.
+    const offsetInput = join(dir, "offset clip.mp4");
+    const offsetMade = spawnSync(bin, [
+      "-hide_banner", "-loglevel", "error",
+      "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=6",
+      "-f", "lavfi", "-i", "sine=frequency=440:duration=6",
+      "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+      "-c:a", "aac", "-shortest", "-output_ts_offset", "5", "-y", offsetInput,
+    ]);
+    assert(offsetMade.status === 0, `offset fixture: ${offsetMade.stderr}`);
     const silent = join(dir, "silent.mp4");
     spawnSync(bin, [
       "-hide_banner", "-loglevel", "error",
@@ -271,6 +356,54 @@ async function main() {
       const plan = buildVideoExport(many, {}, { x264Preset: "veryfast" });
       assert(plan.filter.length > 32_768, "graph is past Windows' command-line limit");
       await render(bin, dir, input, plan, "many-cuts");
+    }
+
+    // A reordered edit with a repeat: a backward jump and the same range
+    // twice. Each monotonic run is its own seeked input; what comes out is
+    // exactly what the single-input graph makes of the same list, frame for
+    // frame, on a source starting at 0 and on one starting at 5 s.
+    {
+      const reordered = [
+        { start: 4.25, end: 5.5 },
+        { start: 0.5, end: 1.75 },
+        { start: 0.5, end: 1.75 },
+        { start: 2.04, end: 3 },
+      ];
+      const reorderedKept = 1.25 + 1.25 + 1.25 + 0.96;
+      const plan = buildVideoExport(reordered, {});
+      assert(plan.inputs.length === 3, "reordered edit opens three inputs");
+      for (const [label, source] of [["plain", input], ["offset", offsetInput]]) {
+        const split = graphDigest(bin, dir, source, plan.inputs, plan.filter, `reorder-${label}`);
+        const whole = graphDigest(
+          bin,
+          dir,
+          source,
+          [[]],
+          singleInputFilter(reordered),
+          `reorder-${label}-whole`
+        );
+        assert(split.video.length > 0, `${label}: reordered edit produced frames`);
+        assert(
+          JSON.stringify(split.video) === JSON.stringify(whole.video),
+          `${label}: reordered video frames match the single-input graph`
+        );
+        assert(
+          split.audioBytes > 0 && split.audioBytes === whole.audioBytes,
+          `${label}: reordered audio length matches (${split.audioBytes} vs ${whole.audioBytes} bytes)`
+        );
+      }
+      const encoded: Array<[string, ExportPlan]> = [
+        ["reorder-mp4", buildVideoExport(reordered, {}, { x264Preset: "veryfast" })],
+        ["reorder-m4a", buildAudioExport(reordered, { format: "m4a" })],
+      ];
+      for (const [name, encodedPlan] of encoded) {
+        const { out } = await render(bin, dir, offsetInput, encodedPlan, name);
+        const duration = probeDuration(bin, out);
+        assert(
+          Math.abs(duration - reorderedKept) < 0.15,
+          `${name}: expected ~${reorderedKept}s, got ${duration}s`
+        );
+      }
     }
 
     // Extraction: 16 kHz mono f32 — 6s is 96000 samples.

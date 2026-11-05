@@ -66,7 +66,15 @@ export const VIDEOTOOLBOX_QUALITY = 65;
 
 /** Everything about an export except where its input and output live. */
 export interface ExportPlan {
-  /** `-filter_complex` graph. */
+  /**
+   * Options that precede each `-i <media>`, one entry per input; every input
+   * is the same file. An edit in source order reads the whole file once
+   * (`[[]]`). One that jumps backwards or repeats reads a short seeked slice
+   * per run (`[["-ss", "12", "-t", "9.500"], ...]`), so ffmpeg never has to
+   * buffer decoded frames until a single decoder comes back around.
+   */
+  inputs: string[][];
+  /** `-filter_complex` graph, reading input `k` as `[k:v]` / `[k:a]`. */
   filter: string;
   /** `-map` / `-an` arguments selecting the graph's outputs. */
   streamArgs: string[];
@@ -159,9 +167,83 @@ export function defaultExportResolution(
 }
 
 /**
- * Keep only `keepRanges` of the original media and concatenate them.
+ * Most inputs one export opens. Each is its own demuxer and decoder on the
+ * file: about 11 MiB more wasm heap apiece at 1080p, and about 300 more
+ * characters of argv, which 48 keeps well under Windows' 32K command line.
+ */
+export const MAX_EXPORT_INPUTS = 48;
+
+/** An edit that jumps around the source too often to render in one ffmpeg run. */
+export class ExportInputLimitError extends Error {
+  constructor(
+    readonly inputs: number,
+    readonly max: number
+  ) {
+    super(`Export needs ${inputs} inputs, the limit is ${max}`);
+    this.name = "ExportInputLimitError";
+  }
+}
+
+/**
+ * Split an edit list into monotonic runs: a run ends wherever the next range
+ * starts before the previous one ended (a backward jump, or a repeat).
+ */
+function monotonicRuns(keepRanges: TimeRange[]): TimeRange[][] {
+  const runs: TimeRange[][] = [];
+  for (const range of keepRanges) {
+    const run = runs.at(-1);
+    if (run && range.start >= run[run.length - 1].end) run.push(range);
+    else runs.push([range]);
+  }
+  return runs;
+}
+
+/** How many inputs rendering `keepRanges` opens: one per monotonic run. */
+export function exportInputCount(keepRanges: TimeRange[]): number {
+  return monotonicRuns(keepRanges).length;
+}
+
+interface InputPlan {
+  /** See {@link ExportPlan.inputs}. */
+  inputs: string[][];
+  /** Per range: the input it reads, and the source second that input starts at. */
+  placements: Array<{ input: number; offset: number }>;
+}
+
+/**
+ * One input per monotonic run, each seeked to just before the run's first
+ * range and cut off just after its last. The offset is a whole number of
+ * seconds, so a range's trim times shift without leaving the millisecond grid
+ * they are written on; the two seconds before and one after absorb timestamp
+ * slack around the cut. An edit that is one run reads the file plain.
+ */
+function planInputs(keepRanges: TimeRange[]): InputPlan {
+  const runs = monotonicRuns(keepRanges);
+  if (runs.length <= 1) {
+    return {
+      inputs: [[]],
+      placements: keepRanges.map(() => ({ input: 0, offset: 0 })),
+    };
+  }
+  if (runs.length > MAX_EXPORT_INPUTS) {
+    throw new ExportInputLimitError(runs.length, MAX_EXPORT_INPUTS);
+  }
+  const inputs: string[][] = [];
+  const placements: InputPlan["placements"] = [];
+  runs.forEach((run, input) => {
+    const offset = Math.max(0, Math.floor(run[0].start) - 2);
+    const length = run[run.length - 1].end - offset + 1;
+    inputs.push([...(offset > 0 ? ["-ss", String(offset)] : []), "-t", length.toFixed(3)]);
+    for (let i = 0; i < run.length; i++) placements.push({ input, offset });
+  });
+  return { inputs, placements };
+}
+
+/**
+ * Keep only `keepRanges` of the original media and concatenate them, in the
+ * order given: ranges may jump backwards or repeat (see {@link planInputs}).
  * Re-encodes so cuts land exactly on word boundaries rather than keyframes.
- * `withAudio: false` renders a silent source, whose missing [0:a] would
+ * `withAudio: false` renders a silent source, whose missing [k:a] would
  * otherwise fail the whole filtergraph.
  */
 export function buildVideoExport(
@@ -170,15 +252,17 @@ export function buildVideoExport(
   { x264Preset = "ultrafast", h264Encoder = "libx264" }: EncoderTuning = {}
 ): ExportPlan {
   const scale = scaleFilter(resolution);
+  const { inputs, placements } = planInputs(keepRanges);
   const parts: string[] = [];
   const labels: string[] = [];
   keepRanges.forEach((r, i) => {
-    const s = r.start.toFixed(3);
-    const e = r.end.toFixed(3);
-    parts.push(`[0:v]trim=start=${s}:end=${e},setpts=PTS-STARTPTS[v${i}]`);
+    const { input, offset } = placements[i];
+    const s = (r.start - offset).toFixed(3);
+    const e = (r.end - offset).toFixed(3);
+    parts.push(`[${input}:v]trim=start=${s}:end=${e},setpts=PTS-STARTPTS[v${i}]`);
     labels.push(`[v${i}]`);
     if (withAudio) {
-      parts.push(`[0:a]atrim=start=${s}:end=${e},asetpts=PTS-STARTPTS[a${i}]`);
+      parts.push(`[${input}:a]atrim=start=${s}:end=${e},asetpts=PTS-STARTPTS[a${i}]`);
       labels[labels.length - 1] += `[a${i}]`;
     }
   });
@@ -216,6 +300,7 @@ export function buildVideoExport(
         ];
 
   return {
+    inputs,
     filter,
     streamArgs: ["-map", videoMap, ...(withAudio ? ["-map", "[outa]"] : ["-an"])],
     codecArgs,
@@ -225,19 +310,21 @@ export function buildVideoExport(
 }
 
 /**
- * Keep only `keepRanges` of the audio track and concatenate them. Works for
- * both audio projects and the audio track of a video file.
+ * Keep only `keepRanges` of the audio track and concatenate them, in the order
+ * given. Works for both audio projects and the audio track of a video file.
  */
 export function buildAudioExport(
   keepRanges: TimeRange[],
   { format = "m4a" }: AudioExportOptions = {}
 ): ExportPlan {
+  const { inputs, placements } = planInputs(keepRanges);
   const parts: string[] = [];
   const labels: string[] = [];
   keepRanges.forEach((r, i) => {
-    const s = r.start.toFixed(3);
-    const e = r.end.toFixed(3);
-    parts.push(`[0:a]atrim=start=${s}:end=${e},asetpts=PTS-STARTPTS[a${i}]`);
+    const { input, offset } = placements[i];
+    const s = (r.start - offset).toFixed(3);
+    const e = (r.end - offset).toFixed(3);
+    parts.push(`[${input}:a]atrim=start=${s}:end=${e},asetpts=PTS-STARTPTS[a${i}]`);
     labels.push(`[a${i}]`);
   });
   const filter =
@@ -252,6 +339,7 @@ export function buildAudioExport(
         : ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"];
 
   return {
+    inputs,
     filter,
     streamArgs: ["-map", "[outa]"],
     codecArgs,
@@ -294,7 +382,8 @@ function isFiniteNonNegative(value: unknown): value is number {
 /**
  * Validate an export request that crossed a process boundary. Returns null for
  * anything malformed, so the main process never builds a filtergraph out of
- * values it hasn't checked.
+ * values it hasn't checked. Ranges may come in any order and repeat: that is
+ * a reordered edit.
  */
 export function parseExportRequest(value: unknown): ExportRequest | null {
   if (!value || typeof value !== "object") return null;
@@ -307,15 +396,16 @@ export function parseExportRequest(value: unknown): ExportRequest | null {
   if (!Array.isArray(keepRanges)) return null;
   if (keepRanges.length === 0 || keepRanges.length > MAX_EXPORT_RANGES) return null;
   const ranges: TimeRange[] = [];
-  let previousEnd = 0;
   for (const range of keepRanges) {
     if (!range || typeof range !== "object") return null;
     const { start, end } = range as Record<string, unknown>;
     if (!isFiniteNonNegative(start) || !isFiniteNonNegative(end)) return null;
-    if (end <= start || start < previousEnd) return null;
-    previousEnd = end;
+    if (end <= start) return null;
     ranges.push({ start, end });
   }
+  // The builders throw past the input cap; refuse here so the main process,
+  // which builds from this request, never has to.
+  if (exportInputCount(ranges) > MAX_EXPORT_INPUTS) return null;
   if (!options || typeof options !== "object") return null;
   const opts = options as Record<string, unknown>;
   if (kind === "video") {

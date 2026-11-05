@@ -422,7 +422,7 @@ export async function extractAudio(file: File): Promise<Float32Array | null> {
  * Render the edited video: keep only `keepRanges` of the original media and
  * concatenate them. Re-encodes so cuts land exactly on word boundaries
  * rather than keyframes. `withAudio: false` renders a silent source, whose
- * missing [0:a] would otherwise fail the whole filtergraph.
+ * missing [k:a] would otherwise fail the whole filtergraph.
  */
 export async function exportVideo(
   file: File,
@@ -483,7 +483,7 @@ async function renderPlan(
   ffmpeg.on("progress", progressHandler);
   try {
     const code = await execWithWatchdog(ffmpeg, [
-      "-i", input,
+      ...plan.inputs.flatMap((options) => [...options, "-i", input]),
       "-filter_complex", plan.filter,
       ...plan.streamArgs,
       ...plan.codecArgs,
