@@ -6,6 +6,8 @@ import {
   ArrowUp,
   ArrowUpFromLine,
   ChevronLast,
+  ClipboardPaste,
+  Copy,
   Eye,
   EyeOff,
   Merge,
@@ -16,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { FloatingPortal } from "@floating-ui/react";
-import { useEditorStore } from "@/lib/store";
+import { activeWordOf, useEditorStore } from "@/lib/store";
 import { isDisfluencyPlaceholder } from "@/lib/disfluencies";
 import TranscriptToolsMenu from "./TranscriptToolsMenu";
 import {
@@ -33,15 +35,15 @@ import SpeakerLabel, {
 } from "./SpeakerLabel";
 import {
   getActiveSceneBoundaries,
-  getKeepRanges,
   isWordCutOut,
   mapSplitsToWords,
 } from "@/lib/edits";
+import { copyOf, cutsOf, ofCopy, sourceOrder } from "@/lib/sequence";
 import { useTranscriptSelection } from "@/hooks/useTranscriptSelection";
 import { useTranscriptPlayheadFollow } from "@/hooks/useTranscriptPlayheadFollow";
 import { useWordAnchorFloating } from "@/hooks/useWordAnchorFloating";
-import { useCutRanges } from "@/hooks/useCutRanges";
-import { findActiveWordId, groupWordsBySpeaker } from "@/lib/transcript";
+import { useSequence } from "@/hooks/useSequence";
+import { groupWordsBySpeaker } from "@/lib/transcript";
 import { isTypingTarget } from "@/lib/keyboard";
 import { useI18n } from "./I18nProvider";
 import { localizeRuntimeMessage } from "@/lib/i18n";
@@ -117,41 +119,48 @@ export default function TranscriptPanel() {
   const { t } = useI18n();
   const words = useEditorStore((s) => s.words);
   const sceneBoundaries = useEditorStore((s) => s.sceneBoundaries);
-  const duration = useEditorStore((s) => s.duration);
   const status = useEditorStore((s) => s.status);
   const progress = useEditorStore((s) => s.progress);
   const partialText = useEditorStore((s) => s.partialText);
   const error = useEditorStore((s) => s.error);
   const showDeleted = useEditorStore((s) => s.showDeleted);
   const toggleShowDeleted = useEditorStore((s) => s.toggleShowDeleted);
-  const deleteWords = useEditorStore((s) => s.deleteWords);
+  const cutWords = useEditorStore((s) => s.cutWords);
+  const copyWords = useEditorStore((s) => s.copyWords);
+  const pasteWords = useEditorStore((s) => s.pasteWords);
+  const hasClipboard = useEditorStore((s) => s.clipboard !== null);
   const restoreWords = useEditorStore((s) => s.restoreWords);
   const correctWords = useEditorStore((s) => s.correctWords);
   const importWords = useEditorStore((s) => s.importWords);
   const removeSceneBoundary = useEditorStore((s) => s.removeSceneBoundary);
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const playing = useEditorStore((s) => s.playing);
-  const activeWordId = useEditorStore((s) => findActiveWordId(s.words, s.currentTime));
+  const activeWordId = useEditorStore(activeWordOf);
 
-  const cuts = useCutRanges();
+  const seq = useSequence();
   const cutOutIds = useMemo(() => {
     const ids = new Set<number>();
     for (const w of words) {
-      if (isWordCutOut(w, cuts)) ids.add(w.id);
+      if (isWordCutOut(w, cutsOf(seq, copyOf(w)))) ids.add(w.id);
     }
     return ids;
-  }, [words, cuts]);
+  }, [words, seq]);
 
   // Splits get a joinable edit boundary in the transcript, like the timeline's
   // marker. Splits at the edge of a skipped region are inert and hidden in both.
-  const splitBeforeWordId = useMemo(
-    () =>
-      mapSplitsToWords(
-        words,
-        getActiveSceneBoundaries(sceneBoundaries, getKeepRanges(cuts, duration))
-      ),
-    [sceneBoundaries, cuts, duration, words]
-  );
+  // Each copy places its own splits among its own words.
+  const splitBeforeWordId = useMemo(() => {
+    const active = getActiveSceneBoundaries(sceneBoundaries, seq.pieces);
+    const map = new Map<number, (typeof active)[number]>();
+    for (const [copy, order] of sourceOrder(words)) {
+      const placed = mapSplitsToWords(
+        order.map((i) => words[i]),
+        ofCopy(active, copy)
+      );
+      for (const [id, b] of placed) map.set(id, b);
+    }
+    return map;
+  }, [sceneBoundaries, seq, words]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -238,7 +247,7 @@ export default function TranscriptPanel() {
       }
       try {
         const imported = await parseTranscriptFile(file);
-        importWords(imported.words, imported.speakers);
+        importWords(imported.words, imported.speakers, imported.copies);
       } catch (err) {
         console.error(err);
         alert(
@@ -251,11 +260,43 @@ export default function TranscriptPanel() {
     [words.length, importWords, t]
   );
 
+  // Cut deletes the words and keeps them on the clipboard: pasted elsewhere,
+  // they move there. Copy keeps them in place; pasting inserts a duplicate.
   const cutSelection = useCallback(() => {
     if (!selection) return;
-    deleteWords(selection.ids);
+    const text = cutWords(selection.ids);
+    if (text) void navigator.clipboard?.writeText(text).catch(() => {});
     clearSelection();
-  }, [selection, deleteWords, clearSelection]);
+  }, [selection, cutWords, clearSelection]);
+
+  const copySelection = useCallback(() => {
+    if (!selection) return;
+    const text = copyWords(selection.ids);
+    if (text) void navigator.clipboard?.writeText(text).catch(() => {});
+    clearSelection();
+  }, [selection, copyWords, clearSelection]);
+
+  // Paste goes in front of the selected words.
+  const pasteBeforeSelection = useCallback(() => {
+    if (!selection) return;
+    const at = words.findIndex((w) => selection.ids.includes(w.id));
+    if (at < 0) return;
+    pasteWords(at);
+  }, [selection, words, pasteWords]);
+
+  // Correct rewrites one continuous stretch of media, so it needs the
+  // selection to sit inside a single run of the edit.
+  const correctOk = useMemo(() => {
+    if (!selection || selection.ids.length === 0) return false;
+    const idSet = new Set(selection.ids);
+    let run = -1;
+    for (let i = 0; i < words.length; i++) {
+      if (!idSet.has(words[i].id)) continue;
+      if (run === -1) run = seq.runOf[i];
+      else if (seq.runOf[i] !== run) return false;
+    }
+    return true;
+  }, [selection, words, seq]);
 
   const restoreSelection = useCallback(() => {
     if (!selection) return;
@@ -519,6 +560,23 @@ export default function TranscriptPanel() {
                     {t("transcript.cut")}
                   </button>
                 )}
+                <button
+                  onClick={copySelection}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  <Copy size={13} />
+                  {t("transcript.copy")}
+                </button>
+                {hasClipboard && (
+                  <button
+                    onClick={pasteBeforeSelection}
+                    title={t("transcript.pasteTitle")}
+                    className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  >
+                    <ClipboardPaste size={13} />
+                    {t("transcript.paste")}
+                  </button>
+                )}
                 {selection.anyDeleted && (
                   <button
                     onClick={restoreSelection}
@@ -528,13 +586,15 @@ export default function TranscriptPanel() {
                     {t("common.restore")}
                   </button>
                 )}
-                <button
-                  onClick={() => openCorrect(selection.ids)}
-                  className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  <Pencil size={13} />
-                  {t("transcript.correct")}
-                </button>
+                {correctOk && (
+                  <button
+                    onClick={() => openCorrect(selection.ids)}
+                    className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-zinc-700 transition hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  >
+                    <Pencil size={13} />
+                    {t("transcript.correct")}
+                  </button>
+                )}
                 <SelectionSpeakerButton onClick={openSpeakerAssign} />
               </div>
             </FloatingPortal>

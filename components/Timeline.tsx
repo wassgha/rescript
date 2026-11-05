@@ -22,24 +22,32 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEditorStore } from "@/lib/store";
 import {
-  canSplitAt,
-  cutRangeAt,
+  canSplitAtPlayhead,
+  playheadDisplayTime,
+  playheadEditedTime,
+  useEditorStore,
+} from "@/lib/store";
+import {
   formatTime,
   getActiveSceneBoundaries,
   getClipSegments,
-  getEditedDuration,
-  getKeepRanges,
   isWordCutOut,
-  originalToEdited,
   trimEdgeBounds,
 } from "@/lib/edits";
+import {
+  copyOf,
+  cutsOf,
+  displayTime,
+  displayTimeInRun,
+  fromDisplay,
+  runAt,
+} from "@/lib/sequence";
 import type { ClipSegment, Word } from "@/lib/types";
 import { isDisfluencyPlaceholder } from "@/lib/disfluencies";
 import { VAD_SAMPLE_RATE } from "@/lib/vad";
 import { peakBetween } from "@/lib/waveform";
-import { useCutRanges } from "@/hooks/useCutRanges";
+import { useSequence } from "@/hooks/useSequence";
 import { useIsDark } from "@/hooks/useIsDark";
 import { useI18n } from "./I18nProvider";
 
@@ -85,15 +93,39 @@ function roundRectPath(
   ctx.closePath();
 }
 
+/**
+ * The timeline's x axis is the edit in playback order: each run of the
+ * sequence laid end to end, cut material included (drawn hatched). Positions
+ * on it are "display seconds"; an edit that was never reordered has exactly
+ * one run, so display seconds are source seconds.
+ *
+ * Drags on words and clip edges stay inside the run they started in (`run`):
+ * across a reorder the neighbouring media plays somewhere else entirely.
+ */
 type DragKind =
   | { type: "seek" }
-  | { type: "word"; wordId: number; edge: "start" | "end"; origStart: number; origEnd: number }
+  | {
+      type: "word";
+      wordId: number;
+      edge: "start" | "end";
+      origStart: number;
+      origEnd: number;
+      run: number;
+    }
   /**
    * `time` tracks where the dragged edge currently sits (mutated as the drag
    * moves); `lo`/`hi` bound it to this clip and the gap next to it, so an edge
    * can close a gap completely but never cross the neighbouring clip's handle.
    */
-  | { type: "trim"; edge: "in" | "out"; time: number; lo: number; hi: number };
+  | {
+      type: "trim";
+      edge: "in" | "out";
+      time: number;
+      lo: number;
+      hi: number;
+      copy: number;
+      run: number;
+    };
 
 export default function Timeline() {
   const { t } = useI18n();
@@ -101,27 +133,32 @@ export default function Timeline() {
   const words = useEditorStore((s) => s.words);
   const sceneBoundaries = useEditorStore((s) => s.sceneBoundaries);
   const duration = useEditorStore((s) => s.duration);
-  const currentTime = useEditorStore((s) => s.currentTime);
+  const playheadD = useEditorStore(playheadDisplayTime);
+  const playheadE = useEditorStore(playheadEditedTime);
   const playing = useEditorStore((s) => s.playing);
   const selectedClipIndex = useEditorStore((s) => s.selectedClipIndex);
   const selectedCutIndex = useEditorStore((s) => s.selectedCutIndex);
   const selectedWordIds = useEditorStore((s) => s.selectedWordIds);
   const status = useEditorStore((s) => s.status);
 
-  const cuts = useCutRanges();
-  const keeps = useMemo(() => getKeepRanges(cuts, duration), [cuts, duration]);
+  const seq = useSequence();
+  const cuts = seq.displayCuts;
   const clips = useMemo(
-    () => getClipSegments(keeps, sceneBoundaries),
-    [keeps, sceneBoundaries]
+    () => getClipSegments(seq.pieces, sceneBoundaries),
+    [seq, sceneBoundaries]
   );
-  const splitOk = useMemo(
-    () => canSplitAt(currentTime, duration, cuts, sceneBoundaries),
-    [currentTime, duration, cuts, sceneBoundaries]
-  );
+  const splitOk = useEditorStore(canSplitAtPlayhead);
   /** Splits that divide two touching clips — the joinable ones. */
   const splits = useMemo(
-    () => getActiveSceneBoundaries(sceneBoundaries, keeps),
-    [sceneBoundaries, keeps]
+    () => getActiveSceneBoundaries(sceneBoundaries, seq.pieces),
+    [sceneBoundaries, seq]
+  );
+  /** Length of the display axis (= the media's duration until something is pasted). */
+  const span = seq.displayDuration;
+  /** Display seconds of a clip's start (clips never straddle runs). */
+  const clipX = useCallback(
+    (clip: ClipSegment) => displayTime(seq, clip.copy, clip.start),
+    [seq]
   );
 
   const outerRef = useRef<HTMLDivElement>(null);
@@ -141,9 +178,9 @@ export default function Timeline() {
   const [hoveredSplitId, setHoveredSplitId] = useState<number | null>(null);
   const dark = useIsDark();
 
-  const fitPps = duration > 0 && width > 0 ? width / duration : 50;
+  const fitPps = span > 0 && width > 0 ? width / span : 50;
   const pps = fitPps * zoom;
-  const totalWidth = Math.max(width, duration * pps);
+  const totalWidth = Math.max(width, span * pps);
   const ready = status === "ready" && duration > 0;
   // Clip delete is for a clip-body click (no word selection). Clicking a word
   // also selects its clip for trim handles — don't treat that as "delete clip".
@@ -158,10 +195,10 @@ export default function Timeline() {
     for (const w of words) {
       if (!idSet.has(w.id)) continue;
       count++;
-      if (!isWordCutOut(w, cuts)) return false;
+      if (!isWordCutOut(w, cutsOf(seq, copyOf(w)))) return false;
     }
     return count > 0;
-  }, [selectedWordIds, words, cuts]);
+  }, [selectedWordIds, words, seq]);
   const restoreOk =
     (selectedCutIndex != null && cuts[selectedCutIndex] != null) ||
     selectedWordsAllCutOut;
@@ -170,12 +207,12 @@ export default function Timeline() {
   const ppsRef = useRef(pps);
   const zoomRef = useRef(zoom);
   const widthRef = useRef(width);
-  const durationRef = useRef(duration);
+  const spanRef = useRef(span);
   useEffect(() => {
     ppsRef.current = pps;
     zoomRef.current = zoom;
     widthRef.current = width;
-    durationRef.current = duration;
+    spanRef.current = span;
   });
 
   // Scroll position to apply after a wheel-zoom re-renders the track width.
@@ -244,8 +281,8 @@ export default function Timeline() {
 
     // Clip selection / hover washes on waveform
     for (const clip of clips) {
-      const x0 = clip.start * pps - scrollLeft;
-      const x1 = clip.end * pps - scrollLeft;
+      const x0 = clipX(clip) * pps - scrollLeft;
+      const x1 = x0 + (clip.end - clip.start) * pps;
       if (x1 < 0 || x0 > width) continue;
       const selected = clip.index === selectedClipIndex;
       const hovered = clip.index === hoveredClipIndex && !selected;
@@ -269,8 +306,8 @@ export default function Timeline() {
 
     // Cut range backgrounds (selected / hovered wash stronger)
     cuts.forEach((cut, cutIndex) => {
-      const x0 = cut.start * pps - scrollLeft;
-      const x1 = cut.end * pps - scrollLeft;
+      const x0 = displayTimeInRun(seq, cut.run, cut.start) * pps - scrollLeft;
+      const x1 = x0 + (cut.end - cut.start) * pps;
       if (x1 < 0 || x0 > width) return;
       const selected = cutIndex === selectedCutIndex;
       const hovered = cutIndex === hoveredCutIndex && !selected;
@@ -322,23 +359,35 @@ export default function Timeline() {
       ctx.restore();
     });
 
+    // Where playback jumps — between runs of a reordered edit.
+    ctx.fillStyle = dark ? "#a1a1aa" : "#71717a";
+    for (let r = 1; r < seq.runs.length; r++) {
+      const x = Math.round(seq.runs[r].offset * pps - scrollLeft);
+      if (x < -1 || x > width + 1) continue;
+      for (let y = trackTop; y < height; y += 6) ctx.fillRect(x, y, 1, 3);
+    }
+
     // Waveform. Drawn from the precomputed min/max envelope rather than the
     // decoded PCM — see lib/waveform.ts. peakBetween already clamps the
     // overshoot hot sources produce, so the bar cannot spill into the wordbar.
     if (!waveform) return;
     const samplesPerPx = VAD_SAMPLE_RATE / pps;
     for (let x = 0; x < width; x++) {
-      const t = (scrollLeft + x) / pps;
-      if (t > duration) break;
+      const d = (scrollLeft + x) / pps;
+      if (d > span) break;
+      const { copy, time: t } = fromDisplay(seq, d);
       const i0 = Math.floor(t * VAD_SAMPLE_RATE);
       const peak = peakBetween(waveform, i0, Math.floor(i0 + samplesPerPx) + 1);
-      const inCut = cuts.some((c) => t >= c.start && t < c.end);
+      const inCut = cutsOf(seq, copy).some((c) => t >= c.start && t < c.end);
       ctx.fillStyle = inCut ? "#fca5a5" : "#818cf8";
       const h = Math.max(1, peak * trackH * WAVE_LANE_FILL);
       ctx.fillRect(x, midY - h / 2, 1, h);
     }
   }, [
     waveform,
+    seq,
+    span,
+    clipX,
     cuts,
     clips,
     duration,
@@ -366,12 +415,12 @@ export default function Timeline() {
     if (!playing || userScrolledRef.current) return;
     const el = scrollRef.current;
     if (!el) return;
-    const px = currentTime * pps;
+    const px = playheadD * pps;
     if (px < el.scrollLeft + 24 || px > el.scrollLeft + width - 96) {
       el.scrollLeft = Math.max(0, px - 96);
       autoScrollRef.current = el.scrollLeft;
     }
-  }, [currentTime, playing, pps, width]);
+  }, [playheadD, playing, pps, width]);
 
   // Vertical wheel / pinch zooms (anchored at the pointer); horizontal
   // trackpad side-scroll pans via native overflow-x. Non-passive so zoom
@@ -380,7 +429,7 @@ export default function Timeline() {
     const el = scrollRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (durationRef.current <= 0) return;
+      if (spanRef.current <= 0) return;
       // Horizontal intent → pan: don't preventDefault, let native scroll run.
       if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
       e.preventDefault();
@@ -396,8 +445,8 @@ export default function Timeline() {
       );
       if (nextZoom === curZoom) return;
       const fit =
-        widthRef.current > 0 && durationRef.current > 0
-          ? widthRef.current / durationRef.current
+        widthRef.current > 0 && spanRef.current > 0
+          ? widthRef.current / spanRef.current
           : 50;
       const nextPps = fit * nextZoom;
       pendingScrollRef.current = Math.max(0, tAnchor * nextPps - pointerX);
@@ -416,21 +465,41 @@ export default function Timeline() {
     setScrollLeft(el.scrollLeft);
   }, [zoom]);
 
-  const timeFromClientX = useCallback(
+  /** Display seconds under a pointer. */
+  const displayFromClientX = useCallback(
     (clientX: number) => {
       const el = scrollRef.current;
       if (!el) return 0;
       const rect = el.getBoundingClientRect();
-      return Math.min(
-        Math.max(0, (clientX - rect.left + el.scrollLeft) / pps),
-        duration
-      );
+      return Math.min(Math.max(0, (clientX - rect.left + el.scrollLeft) / pps), span);
     },
-    [pps, duration]
+    [pps, span]
   );
 
-  const seekTo = useCallback((t: number) => {
-    useEditorStore.getState().seekTo(t);
+  /** Source time within run `r` under a pointer, held to that run. */
+  const runTimeFromClientX = useCallback(
+    (clientX: number, r: number) => {
+      const run = seq.runs[r];
+      if (!run) return 0;
+      const d = displayFromClientX(clientX);
+      return Math.min(Math.max(run.start + d - run.offset, run.start), run.end);
+    },
+    [seq, displayFromClientX]
+  );
+
+  /** The clip and cut (indices) under a display position. */
+  const hitAt = useCallback(
+    (d: number) => {
+      const { copy, time, run } = fromDisplay(seq, d);
+      const clip = clips.find((c) => c.copy === copy && time >= c.start && time < c.end);
+      const cutIdx = cuts.findIndex((c) => c.run === run && time >= c.start && time < c.end);
+      return { copy, time, clip, cutIdx };
+    },
+    [seq, clips, cuts]
+  );
+
+  const seekTo = useCallback((t: number, copy: number) => {
+    useEditorStore.getState().seekTo(t, copy);
   }, []);
 
   const endDrag = useCallback(() => {
@@ -453,16 +522,15 @@ export default function Timeline() {
 
   const onPointerMove = useCallback(
     (e: ReactPointerEvent) => {
-      const t = timeFromClientX(e.clientX);
       const drag = dragRef.current;
       if (!drag) {
         // Hover clip or cut under cursor (waveform area)
-        const clip = clips.find((c) => t >= c.start && t < c.end);
-        setHoveredClipIndex(clip?.index ?? null);
-        const cutIdx = cuts.findIndex((c) => t >= c.start && t < c.end);
-        setHoveredCutIndex(cutIdx >= 0 ? cutIdx : null);
+        const d = displayFromClientX(e.clientX);
+        const hit = hitAt(d);
+        setHoveredClipIndex(hit.clip?.index ?? null);
+        setHoveredCutIndex(hit.cutIdx >= 0 ? hit.cutIdx : null);
         const split = splits.find(
-          (b) => Math.abs(t - b.time) * pps <= SPLIT_HOVER_PX
+          (b) => Math.abs(d - displayTime(seq, copyOf(b), b.time)) * pps <= SPLIT_HOVER_PX
         );
         setHoveredSplitId(split?.id ?? null);
         return;
@@ -471,10 +539,12 @@ export default function Timeline() {
       const store = useEditorStore.getState();
 
       if (drag.type === "seek") {
-        seekTo(t);
+        const { copy, time } = fromDisplay(seq, displayFromClientX(e.clientX));
+        seekTo(time, copy);
         return;
       }
       if (drag.type === "word") {
+        const t = runTimeFromClientX(e.clientX, drag.run);
         if (drag.edge === "start") {
           store.adjustWordBounds(drag.wordId, t, drag.origEnd);
         } else {
@@ -483,14 +553,15 @@ export default function Timeline() {
         return;
       }
       if (drag.type === "trim") {
+        const t = runTimeFromClientX(e.clientX, drag.run);
         const next = Math.min(Math.max(t, drag.lo), drag.hi);
         if (Math.abs(next - drag.time) < 1e-4) return;
-        store.trimEdge(drag.edge, drag.time, next);
+        store.trimEdge(drag.edge, drag.time, next, drag.copy);
         drag.time = next;
         return;
       }
     },
-    [clips, cuts, pps, seekTo, splits, timeFromClientX]
+    [seq, pps, seekTo, splits, hitAt, displayFromClientX, runTimeFromClientX]
   );
 
   const onPointerLeave = useCallback(() => {
@@ -513,9 +584,7 @@ export default function Timeline() {
       const target = e.target as HTMLElement;
       if (target.closest("[data-tl-interactive]")) return;
 
-      const t = timeFromClientX(e.clientX);
-      const clip = clips.find((c) => t >= c.start && t < c.end);
-      const cutIdx = cuts.findIndex((c) => t >= c.start && t < c.end);
+      const { copy, time, clip, cutIdx } = hitAt(displayFromClientX(e.clientX));
       const store = useEditorStore.getState();
       if (cutIdx >= 0) {
         store.setSelectedCutIndex(cutIdx);
@@ -528,13 +597,13 @@ export default function Timeline() {
       dragRef.current = { type: "seek" };
       setDragging(true);
       e.currentTarget.setPointerCapture(e.pointerId);
-      seekTo(t);
+      seekTo(time, copy);
     },
-    [clips, cuts, seekTo, timeFromClientX]
+    [hitAt, seekTo, displayFromClientX]
   );
 
   const startWordDrag = useCallback(
-    (e: ReactPointerEvent, word: Word, edge: "start" | "end") => {
+    (e: ReactPointerEvent, word: Word, edge: "start" | "end", run: number) => {
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -545,6 +614,7 @@ export default function Timeline() {
         edge,
         origStart: word.start,
         origEnd: word.end,
+        run,
       };
       setDragging(true);
     },
@@ -562,46 +632,63 @@ export default function Timeline() {
 
       // Reclaiming may consume the whole gap next to this clip, but no further:
       // past that lies the neighbour's own handle, and dragging through it used
-      // to trim the wrong clip.
-      const { lo, hi } = trimEdgeBounds(clip, edge, cuts);
+      // to trim the wrong clip. Nor past the clip's run, whose neighbouring
+      // media plays elsewhere.
+      const run = runAt(seq, clip.copy, clip.start);
+      const { start: runStart, end: runEnd } = seq.runs[run];
+      const bounds = trimEdgeBounds(clip, edge, cutsOf(seq, clip.copy));
+      const lo = Math.max(bounds.lo, runStart);
+      const hi = Math.min(bounds.hi, runEnd);
       dragRef.current = {
         type: "trim",
         edge,
         time: edge === "in" ? clip.start : clip.end,
         lo,
         hi,
+        copy: clip.copy,
+        run,
       };
       setDragging(true);
     },
-    [cuts]
+    [seq]
   );
 
-  const editedDuration = useMemo(
-    () => getEditedDuration(cuts, duration),
-    [cuts, duration]
-  );
-  const trimmed = duration - editedDuration;
+  const editedDuration = seq.editedDuration;
+  const trimmed = span - editedDuration;
 
   const togglePlay = useCallback(() => {
     useEditorStore.getState().togglePlayback();
   }, []);
 
-  const skip = useCallback((delta: number) => {
-    const { videoEl, setCurrentTime } = useEditorStore.getState();
-    if (!videoEl) return;
-    const t = Math.min(Math.max(0, videoEl.currentTime + delta), videoEl.duration);
-    videoEl.currentTime = t;
-    setCurrentTime(t);
-  }, []);
+  /** Jump ±delta along the timeline (display axis), wherever that lands. */
+  const skip = useCallback(
+    (delta: number) => {
+      const s = useEditorStore.getState();
+      if (!s.videoEl) return;
+      const d = playheadDisplayTime(s) + delta;
+      const { copy, time } = fromDisplay(seq, Math.min(Math.max(0, d), span));
+      s.seekTo(time, copy);
+    },
+    [seq, span]
+  );
 
-  // Word labels for the visible window
+  // Word chips for the visible window, each placed in its own run.
   const visibleWords = useMemo(() => {
-    const t0 = scrollLeft / pps - 1;
-    const t1 = (scrollLeft + width) / pps + 1;
-    return words.filter((w) => w.end >= t0 && w.start <= t1);
-  }, [words, pps, scrollLeft, width]);
+    const d0 = scrollLeft / pps - 1;
+    const d1 = (scrollLeft + width) / pps + 1;
+    const out: Array<{ word: Word; run: number; x: number }> = [];
+    seq.runs.forEach((run, r) => {
+      if (run.offset > d1 || run.offset + (run.end - run.start) < d0) return;
+      for (let i = run.from; i < run.to; i++) {
+        const w = words[i];
+        const x = displayTimeInRun(seq, r, w.start);
+        if (x + (w.end - w.start) >= d0 && x <= d1) out.push({ word: w, run: r, x });
+      }
+    });
+    return out;
+  }, [seq, words, pps, scrollLeft, width]);
 
-  const playheadX = currentTime * pps - scrollLeft;
+  const playheadX = playheadD * pps - scrollLeft;
   const showHandles = pps >= HANDLE_VIS_PPS;
 
   return (
@@ -611,14 +698,14 @@ export default function Timeline() {
       <div className="relative flex shrink-0 flex-wrap items-center gap-x-2 border-b border-zinc-100 px-2.5 sm:h-10 sm:flex-nowrap dark:border-zinc-800">
         <div className="order-1 flex h-9 min-w-0 flex-1 items-center gap-2 sm:h-auto">
           <span className="shrink-0 text-[11px] font-mono tabular-nums leading-none text-zinc-900 dark:text-zinc-100">
-            {formatTime(originalToEdited(currentTime, cuts))}
+            {formatTime(playheadE)}
             <span className="text-zinc-400 dark:text-zinc-500"> / {formatTime(editedDuration)}</span>
           </span>
           {trimmed > 0.01 && (
             <span
               title={t("timeline.removed", {
                 trimmed: formatTime(trimmed),
-                duration: formatTime(duration),
+                duration: formatTime(span),
               })}
               className="hidden sm:inline-block shrink-0 font-mono rounded-sm bg-red-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums leading-none text-red-600 dark:bg-red-950/40 dark:text-red-400"
             >
@@ -821,7 +908,12 @@ export default function Timeline() {
                 <div
                   key={`split-${b.id}`}
                   className="pointer-events-none absolute z-[8] flex -translate-x-1/2 justify-center items-center"
-                  style={{ left: b.time * pps, top: RULER_H + WORDBAR_H + 4, bottom: 0, width: 18 }}
+                  style={{
+                    left: displayTime(seq, copyOf(b), b.time) * pps,
+                    top: RULER_H + WORDBAR_H + 4,
+                    bottom: 0,
+                    width: 18,
+                  }}
                 >
                   {hovered && (
                     <button
@@ -845,7 +937,12 @@ export default function Timeline() {
               <div
                 className="pointer-events-none absolute z-[4] rounded-sm ring-1 ring-red-400/55 dark:ring-red-300/50"
                 style={{
-                  left: cuts[selectedCutIndex].start * pps,
+                  left:
+                    displayTimeInRun(
+                      seq,
+                      cuts[selectedCutIndex].run,
+                      cuts[selectedCutIndex].start
+                    ) * pps,
                   width: Math.max(
                     2,
                     (cuts[selectedCutIndex].end - cuts[selectedCutIndex].start) * pps
@@ -869,7 +966,7 @@ export default function Timeline() {
                     onPointerDown={(e) => startTrimDrag(e, clip, "in")}
                     className="tl-trim-handle absolute z-[6] -translate-x-1/2 cursor-ew-resize"
                     style={{
-                      left: clip.start * pps,
+                      left: clipX(clip) * pps,
                       top: RULER_H + WORDBAR_H + 4,
                       bottom: 4,
                       opacity: selected ? 1 : 0.7,
@@ -889,7 +986,7 @@ export default function Timeline() {
                     onPointerDown={(e) => startTrimDrag(e, clip, "out")}
                     className="tl-trim-handle absolute z-[6] -translate-x-1/2 cursor-ew-resize"
                     style={{
-                      left: clip.end * pps,
+                      left: (clipX(clip) + clip.end - clip.start) * pps,
                       top: RULER_H + WORDBAR_H + 4,
                       bottom: 4,
                       opacity: selected ? 1 : 0.7,
@@ -908,7 +1005,7 @@ export default function Timeline() {
                     <div
                       className="pointer-events-none absolute z-[4] rounded-sm ring-1 ring-indigo-400/55 dark:ring-indigo-300/50"
                       style={{
-                        left: clip.start * pps,
+                        left: clipX(clip) * pps,
                         width: Math.max(2, (clip.end - clip.start) * pps),
                         top: RULER_H + WORDBAR_H + SELECTION_INSET,
                         bottom: SELECTION_INSET,
@@ -920,10 +1017,11 @@ export default function Timeline() {
             })}
 
             {/* Wordbar chips */}
-            {visibleWords.map((w) => {
+            {visibleWords.map(({ word: w, run, x }) => {
               const wWidth = Math.max(6, (w.end - w.start) * pps - 1);
               const hovered = hoveredWordId === w.id;
-              const cutOut = isWordCutOut(w, cuts);
+              const copy = copyOf(w);
+              const cutOut = isWordCutOut(w, cutsOf(seq, copy));
               const wordSelected = selectedWordIds.includes(w.id);
               const placeholder = isDisfluencyPlaceholder(w.text);
               const showWordHandles = showHandles && (hovered || wWidth > 28);
@@ -945,7 +1043,7 @@ export default function Timeline() {
                             : "border-zinc-200/90 bg-white/95 text-zinc-600 dark:border-zinc-700/90 dark:bg-zinc-800/95 dark:text-zinc-300"
                   } ${wordSelected ? "ring-1 ring-indigo-400/80" : ""}`}
                   style={{
-                    left: w.start * pps,
+                    left: x * pps,
                     top: RULER_H + 5,
                     width: wWidth,
                     height: WORDBAR_H - 10,
@@ -967,21 +1065,17 @@ export default function Timeline() {
                     // Clicking the chip body seeks to word start (not a bound drag)
                     if ((e.target as HTMLElement).dataset.edge) return;
                     e.stopPropagation();
-                    seekTo(w.start);
+                    seekTo(w.start, copy);
                     const store = useEditorStore.getState();
                     // Select the word (the transcript mirrors this). Kept words
                     // also select their clip; cut-out words select the cut so
                     // Delete / Restore can bring them back.
                     store.setSelectedWords([w.id]);
                     if (cutOut) {
-                      const cut = cutRangeAt(w.start + (w.end - w.start) / 2, cuts);
-                      const cutIdx = cut
-                        ? cuts.findIndex(
-                            (c) =>
-                              Math.abs(c.start - cut.start) < 1e-4 &&
-                              Math.abs(c.end - cut.end) < 1e-4
-                          )
-                        : -1;
+                      const mid = w.start + (w.end - w.start) / 2;
+                      const cutIdx = cuts.findIndex(
+                        (c) => c.run === run && mid >= c.start && mid < c.end
+                      );
                       if (cutIdx >= 0) store.setSelectedCutIndex(cutIdx);
                       else {
                         store.setSelectedCutIndex(null);
@@ -989,7 +1083,7 @@ export default function Timeline() {
                       }
                     } else {
                       const clip = clips.find(
-                        (c) => w.start >= c.start && w.start < c.end
+                        (c) => c.copy === copy && w.start >= c.start && w.start < c.end
                       );
                       store.setSelectedClipIndex(clip?.index ?? null);
                       store.setSelectedCutIndex(null);
@@ -1004,7 +1098,7 @@ export default function Timeline() {
                       <span
                         data-edge="start"
                         data-tl-interactive
-                        onPointerDown={(e) => startWordDrag(e, w, "start")}
+                        onPointerDown={(e) => startWordDrag(e, w, "start", run)}
                         className="tl-word-handle absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize"
                       >
                         <span
@@ -1021,7 +1115,7 @@ export default function Timeline() {
                       <span
                         data-edge="end"
                         data-tl-interactive
-                        onPointerDown={(e) => startWordDrag(e, w, "end")}
+                        onPointerDown={(e) => startWordDrag(e, w, "end", run)}
                         className="tl-word-handle absolute inset-y-0 right-0 z-10 w-1.5 cursor-ew-resize"
                       >
                         <span

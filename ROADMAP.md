@@ -10,6 +10,7 @@ User-facing progress for Rescript. Items are marked done when they shipped to
 - [x] Upload → local Whisper transcription with per-word timestamps
 - [x] Speaker diarization (pyannote) with speaker-grouped transcript
 - [x] Cut / restore by selecting words (⌫, floating toolbar); undo / redo
+- [x] Reorder and duplicate by cutting, copying and pasting words (media follows in every export)
 - [x] Live preview that skips cut ranges in real time
 - [x] Timeline with waveform, ruler, word labels, cut regions, playhead, and zoom
 - [x] In-browser export to MP4 (ffmpeg.wasm, word-accurate cuts)

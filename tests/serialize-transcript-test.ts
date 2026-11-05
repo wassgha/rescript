@@ -292,6 +292,32 @@ const sample: Word[] = [
 }
 
 {
+  // A reordered and duplicated edit: captions follow playback order, each word
+  // timed through the run it plays in. Source: "One." 0–1, "Two." 1–2 (no gap),
+  // played Two, One, then a pasted copy of One.
+  const words: Word[] = [
+    { id: 1, text: "Two.", start: 1, end: 2, speaker: 0, deleted: false, src: 1 },
+    { id: 0, text: "One.", start: 0, end: 1, speaker: 0, deleted: false, src: 0 },
+    { id: 2, text: "One.", start: 0, end: 1, speaker: 0, deleted: false, src: 0, copy: 1 },
+  ];
+  const copies = [{ id: 1, start: 0, end: 1 }];
+  const srt = serializeTranscript(words, "srt", { duration: 2, copies });
+  assert(srt.includes("00:00:00,000 --> 00:00:01,000\nSpeaker 1: Two."), `Two. plays first\n${srt}`);
+  assert(srt.includes("00:00:01,000 --> 00:00:02,000\nSpeaker 1: One."), `then One.\n${srt}`);
+  assert(srt.includes("00:00:02,000 --> 00:00:03,000\nSpeaker 1: One."), `then the copy\n${srt}`);
+  const json = JSON.parse(serializeTranscript(words, "json", { duration: 2, copies }));
+  assert(json.copies?.length === 1 && json.words[2].copy === 1, "JSON keeps copies");
+  assert(json.words.map((w: { src: number }) => w.src).join() === "1,0,0", "JSON keeps source ranks");
+  const back = parseTranscript(JSON.stringify(json), "edit.json");
+  assert(back.copies?.length === 1, "re-import reads copies");
+  assert(back.words.map((w) => `${w.copy ?? 0}:${w.src}`).join() === "0:1,0:0,1:0", "re-import keeps order");
+  // A plain project exports JSON exactly as before: no copy / src fields.
+  const plain = JSON.parse(serializeTranscript(sample, "json", { duration: 10 }));
+  assert(!("copies" in plain) && !("src" in plain.words[0]) && !("copy" in plain.words[0]), "plain JSON unchanged");
+  console.log("reordered captions + JSON round trip: ok");
+}
+
+{
   // Manual cuts (passed explicitly) omit covered words even when not deleted.
   const words: Word[] = [
     { id: 0, text: "Keep", start: 0, end: 1, speaker: 0, deleted: false },
@@ -300,7 +326,7 @@ const sample: Word[] = [
   ];
   const txt = serializeTranscript(words, "txt", {
     duration: 5,
-    cuts: [{ start: 1, end: 2 }],
+    manualCuts: [{ id: 1, start: 1, end: 2 }],
   });
   assert(txt.includes("Keep"), "manual cut keeps first");
   assert(txt.includes("Later"), "manual cut keeps later");

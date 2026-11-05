@@ -10,14 +10,14 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { useEditorStore } from "@/lib/store";
+import { activeWordOf, seekToWord, useEditorStore } from "@/lib/store";
 import { isDisfluencyPlaceholder } from "@/lib/disfluencies";
-import { PLAYHEAD_EPSILON_S } from "@/lib/edits";
 import { speakerLabel } from "@/lib/speakers";
-import { findActiveWordId, groupWordsBySpeaker } from "@/lib/transcript";
+import { groupWordsBySpeaker } from "@/lib/transcript";
 import {
   buildTranscriptText,
   wordIdAtCaret,
+  wordIdBeforeCaret,
   wordIdForDelete,
   wordIdsInRange,
   wordStartOffset,
@@ -34,9 +34,10 @@ function sameIds(a: number[], b: number[]): boolean {
  * is one span per word, which NVDA / VoiceOver can't read as editable text, so
  * this keeps a visually hidden native textarea in sync with the kept words.
  * Caret moves seek the playhead, selections select words, Backspace / Delete
- * cut words, Enter opens Correct, Space plays / pauses, and undo / redo go
- * through the editor's history. Typing is blocked — the text only changes
- * through edits, so it always matches what will be exported.
+ * cut words, Enter opens Correct, Space plays / pauses, Cut / Copy / Paste move
+ * and duplicate words, and undo / redo go through the editor's history. Typing
+ * is blocked — the text only changes through edits, so it always matches what
+ * will be exported.
  */
 export default function TranscriptTextLayer({
   cutOutIds,
@@ -98,9 +99,8 @@ export default function TranscriptTextLayer({
         caret = Math.min(moved.end, moved.start + start - anchor.start);
       } else {
         // The word was replaced (correct / undo) — fall back to the playhead.
-        const s = useEditorStore.getState();
         caret =
-          wordStartOffset(segments, findActiveWordId(s.words, s.currentTime)) ??
+          wordStartOffset(segments, activeWordOf(useEditorStore.getState())) ??
           Math.min(start, text.length);
       }
     }
@@ -120,7 +120,7 @@ export default function TranscriptTextLayer({
     if (caretId === null || caretId === caretWordRef.current) return;
     caretWordRef.current = caretId;
     const word = s.words.find((w) => w.id === caretId);
-    if (word) s.seekTo(word.start + PLAYHEAD_EPSILON_S);
+    if (word) seekToWord(word);
   }, [segments]);
 
   // Pick up where the playhead is, so play → pause → edit lands on the word
@@ -128,8 +128,7 @@ export default function TranscriptTextLayer({
   const handleFocus = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    const s = useEditorStore.getState();
-    const activeId = findActiveWordId(s.words, s.currentTime);
+    const activeId = activeWordOf(useEditorStore.getState());
     if (activeId === wordIdAtCaret(segments, el.selectionStart)) return;
     const at = wordStartOffset(segments, activeId);
     if (at === null) return;
@@ -176,8 +175,57 @@ export default function TranscriptTextLayer({
     [announce, t]
   );
 
+  // Cut / Copy / Paste — from keys, the context menu or the app's Edit menu.
+  // Cut deletes the words until they are pasted; a paste moves them to the
+  // caret, and pasting copied words inserts a duplicate. The system clipboard
+  // gets the plain text; a paste is refused when it holds other text — the
+  // user copied something else since.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const selectedIds = () => wordIdsInRange(segments, el.selectionStart, el.selectionEnd);
+    const onCopy = (e: ClipboardEvent, cut: boolean) => {
+      e.preventDefault();
+      const ids = selectedIds();
+      if (ids.length === 0) return;
+      const s = useEditorStore.getState();
+      if (cut) {
+        const lastIndex = segments.findIndex((seg) => seg.id === ids[ids.length - 1]);
+        pendingCaretRef.current = segments[lastIndex + 1]?.id ?? "end";
+      }
+      const copied = cut ? s.cutWords(ids) : s.copyWords(ids);
+      if (copied === null) return;
+      e.clipboardData?.setData("text/plain", copied);
+      announce(t(cut ? "transcript.textCut" : "transcript.textCopied", { text: copied }));
+    };
+    const handleCut = (e: ClipboardEvent) => onCopy(e, true);
+    const handleCopy = (e: ClipboardEvent) => onCopy(e, false);
+    const handlePaste = (e: ClipboardEvent) => {
+      e.preventDefault();
+      const s = useEditorStore.getState();
+      const pasted = e.clipboardData?.getData("text/plain");
+      if (!s.clipboard || (pasted && pasted !== s.clipboard.text)) {
+        announce(t("transcript.textNothingToPaste"));
+        return;
+      }
+      const beforeId = wordIdBeforeCaret(segments, el.selectionStart);
+      const at = beforeId === null ? s.words.length : s.words.findIndex((w) => w.id === beforeId);
+      if (at < 0 || !s.pasteWords(at)) return;
+      pendingCaretRef.current = beforeId ?? "end";
+      announce(t("transcript.textPasted", { text: s.clipboard.text }));
+    };
+    el.addEventListener("cut", handleCut);
+    el.addEventListener("copy", handleCopy);
+    el.addEventListener("paste", handlePaste);
+    return () => {
+      el.removeEventListener("cut", handleCut);
+      el.removeEventListener("copy", handleCopy);
+      el.removeEventListener("paste", handlePaste);
+    };
+  }, [segments, announce, t]);
+
   // Native beforeinput carries inputType (React's onBeforeInput doesn't), so
-  // every way of editing — keys, Cut, the Edit menu — is caught here. Nothing
+  // every other way of editing — keys, the Edit menu — is caught here. Nothing
   // reaches the value directly; deletions become word cuts.
   useEffect(() => {
     const el = ref.current;

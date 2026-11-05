@@ -7,8 +7,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { PLAYHEAD_EPSILON_S } from "@/lib/edits";
-import { useEditorStore } from "@/lib/store";
+import { seekToWord, useEditorStore } from "@/lib/store";
 import type { Word } from "@/lib/types";
 
 export interface TranscriptSelectionInfo {
@@ -175,9 +174,6 @@ export function useTranscriptSelection({
     window.getSelection()?.removeAllRanges();
   }, []);
 
-  const seekToWord = useCallback((word: Word) => {
-    useEditorStore.getState().seekTo(word.start + PLAYHEAD_EPSILON_S);
-  }, []);
 
   const handleWordClick = useCallback(
     (word: Word, el: HTMLElement) => {
@@ -197,7 +193,7 @@ export function useTranscriptSelection({
       });
       setSelectedWords([word.id]);
     },
-    [seekToWord, applyMarks, containerRef, setSelectedWords]
+    [applyMarks, containerRef, setSelectedWords]
   );
 
   // Paint marks on selectionchange; commit to React only when the mouse is up.

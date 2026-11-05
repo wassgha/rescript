@@ -7,8 +7,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { useEditorStore } from "@/lib/store";
-import { findActiveWordId } from "@/lib/transcript";
+import { activeWordOf, useEditorStore } from "@/lib/store";
 
 /** Matches the transcript panel's floating header (`h-10` / `pt-10` / `scroll-pt-10`). */
 const HEADER_H = 40;
@@ -54,8 +53,7 @@ export function useTranscriptPlayheadFollow({
   const measurePlayheadAnchor = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) return { offscreen: false as const };
-    const { words, currentTime } = useEditorStore.getState();
-    const activeId = findActiveWordId(words, currentTime);
+    const activeId = activeWordOf(useEditorStore.getState());
     const el =
       activeId < 0
         ? null

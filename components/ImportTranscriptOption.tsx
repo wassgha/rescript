@@ -148,6 +148,7 @@ export default function ImportTranscriptOption() {
                 name: file.name,
                 words: parsed.words,
                 speakers: parsed.speakers,
+                copies: parsed.copies,
               });
               setSource("import");
               menu?.closeMenu();

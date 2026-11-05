@@ -5,8 +5,8 @@ import { Undo2, VolumeX, WandSparkles, Zap, type LucideIcon } from "lucide-react
 import { useEditorStore } from "@/lib/store";
 import { findDeletedFillerWordIds, findFillerWordIds } from "@/lib/fillers";
 import {
-  findSilenceCuts,
-  findSilenceRanges,
+  findCopySilenceCuts,
+  findCopySilenceRanges,
   MIN_SILENCE_DURATION,
 } from "@/lib/silences";
 import Popover, { PopoverContent, PopoverTrigger } from "./Popover";
@@ -21,12 +21,12 @@ import type { MessageKey } from "@/lib/i18n";
 type ToolContext = {
   fillerIds: number[];
   deletedFillerIds: number[];
-  silenceRanges: ReturnType<typeof findSilenceRanges>;
-  silenceCuts: ReturnType<typeof findSilenceCuts>;
+  silenceRanges: ReturnType<typeof findCopySilenceRanges>;
+  silenceCuts: ReturnType<typeof findCopySilenceCuts>;
   deleteWords: (ids: number[]) => void;
   restoreWords: (ids: number[]) => void;
-  cutRanges: (ranges: { start: number; end: number }[]) => void;
-  restoreRanges: (ranges: { start: number; end: number }[]) => void;
+  cutRanges: (ranges: { start: number; end: number; copy?: number }[]) => void;
+  restoreRanges: (ranges: { start: number; end: number; copy?: number }[]) => void;
 };
 
 type ToolDef = {
@@ -85,6 +85,7 @@ export default function TranscriptToolsMenu() {
   const words = useEditorStore((s) => s.words);
   const duration = useEditorStore((s) => s.duration);
   const manualCuts = useEditorStore((s) => s.manualCuts);
+  const copies = useEditorStore((s) => s.copies);
   const deleteWords = useEditorStore((s) => s.deleteWords);
   const restoreWords = useEditorStore((s) => s.restoreWords);
   const cutRanges = useEditorStore((s) => s.cutRanges);
@@ -97,8 +98,8 @@ export default function TranscriptToolsMenu() {
     () => ({
       fillerIds: findFillerWordIds(words),
       deletedFillerIds: findDeletedFillerWordIds(words),
-      silenceRanges: findSilenceRanges(words, duration, manualCuts),
-      silenceCuts: findSilenceCuts(words, manualCuts),
+      silenceRanges: findCopySilenceRanges(words, duration, manualCuts, copies),
+      silenceCuts: findCopySilenceCuts(words, manualCuts),
       deleteWords,
       restoreWords,
       cutRanges,
@@ -108,6 +109,7 @@ export default function TranscriptToolsMenu() {
       words,
       duration,
       manualCuts,
+      copies,
       deleteWords,
       restoreWords,
       cutRanges,

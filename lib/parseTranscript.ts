@@ -1,6 +1,7 @@
 import { en } from "@/lib/i18n/messages/en";
 import { defaultSpeakerName, speakersFromWords } from "./speakers";
-import type { SpeakerInfo, Word } from "./types";
+import { withSourceRanks } from "./sequence";
+import type { SourceCopy, SpeakerInfo, Word } from "./types";
 
 /** Caption / transcript files we can turn into timed words. */
 export const TRANSCRIPT_ACCEPT =
@@ -20,6 +21,8 @@ export function isTranscriptFile(file: File): boolean {
 export interface ParsedTranscript {
   words: Word[];
   speakers: SpeakerInfo[];
+  /** Pasted duplicates of the media, from a Rescript JSON export of a reordered edit. */
+  copies?: SourceCopy[];
 }
 
 interface Cue {
@@ -68,6 +71,7 @@ export function parseTranscript(
   return {
     words: parsed.words,
     speakers: speakersFromWords(parsed.words, parsed.speakers),
+    ...(parsed.copies ? { copies: parsed.copies } : {}),
   };
 }
 
@@ -114,6 +118,8 @@ function wordsFromJson(text: string): ParsedTranscript {
     nextSpeaker = Math.max(nextSpeaker, s.id + 1);
   }
 
+  const copies = readCopies(data);
+  const copyIds = new Set(copies.map((c) => c.id));
   const words: Word[] = [];
 
   for (const row of rows) {
@@ -139,6 +145,10 @@ function wordsFromJson(text: string): ParsedTranscript {
     }
 
     const s = Math.max(0, start);
+    // Rows are in playback order; `copy` and `src` (source rank) say which
+    // pass over the media a word plays from when the edit was reordered.
+    const copy = Number(r.copy);
+    const src = Number(r.src);
     words.push({
       id: words.length,
       text: token,
@@ -146,10 +156,36 @@ function wordsFromJson(text: string): ParsedTranscript {
       end: Math.max(s + 0.02, end),
       speaker,
       deleted: Boolean(r.deleted),
+      ...(copyIds.has(copy) ? { copy } : {}),
+      ...(r.src !== undefined && Number.isFinite(src) ? { src } : {}),
     });
   }
 
-  return { words, speakers: speakersFromWords(words, namedSpeakers) };
+  return {
+    // Ranks must be all-or-nothing and unique per copy.
+    words: words.some((w) => w.src !== undefined) ? withSourceRanks(words) : words,
+    speakers: speakersFromWords(words, namedSpeakers),
+    ...(copies.length > 0 ? { copies } : {}),
+  };
+}
+
+/** Duplicate ranges from a Rescript JSON export (`copies: [{ id, start, end }]`). */
+function readCopies(data: unknown): SourceCopy[] {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return [];
+  const raw = (data as { copies?: unknown }).copies;
+  if (!Array.isArray(raw)) return [];
+  const out: SourceCopy[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const id = Number(r.id);
+    const start = Number(r.start);
+    const end = Number(r.end);
+    if (!Number.isInteger(id) || id < 1 || out.some((c) => c.id === id)) continue;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    out.push({ id, start: Math.max(0, start), end });
+  }
+  return out;
 }
 
 function readSpeakerInfos(data: unknown): SpeakerInfo[] {

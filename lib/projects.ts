@@ -13,7 +13,13 @@ import {
   isTranscriptLanguage,
 } from "./languages";
 import type { MediaKind } from "./media";
-import type { ManualCut, SceneBoundary, SpeakerInfo, Word } from "./types";
+import type {
+  ManualCut,
+  SceneBoundary,
+  SourceCopy,
+  SpeakerInfo,
+  Word,
+} from "./types";
 
 const DB_NAME = "rescript-projects";
 const DB_VERSION = 1;
@@ -49,6 +55,8 @@ export interface ProjectRecord extends ProjectMeta {
   sceneBoundaries?: SceneBoundary[];
   /** Named speakers (optional for older saves — derived from words when missing). */
   speakers?: SpeakerInfo[];
+  /** Pasted duplicates of the media (absent when nothing was duplicated). */
+  copies?: SourceCopy[];
   /** Original media bytes. */
   media: Blob;
   /** MIME type used when reconstructing a File. */
@@ -197,6 +205,7 @@ export async function putProject(input: ProjectWrite): Promise<string> {
     manualCuts: input.manualCuts ?? [],
     sceneBoundaries: input.sceneBoundaries ?? [],
     speakers: input.speakers ?? [],
+    copies: input.copies ?? [],
     media: input.media,
     mediaType: input.mediaType,
     ...(input.sourcePath

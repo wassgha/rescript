@@ -74,6 +74,7 @@ async function writeSnapshot() {
       manualCuts: s.manualCuts,
       sceneBoundaries: s.sceneBoundaries,
       speakers: s.speakers,
+      copies: s.copies,
       media: s.videoFile,
       mediaType: s.videoFile.type,
       ...(source

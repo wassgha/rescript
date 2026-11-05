@@ -96,50 +96,69 @@ export function getCutRanges(
   return merged;
 }
 
-/** Invert cut ranges into the ranges of the original media that remain. */
-export function getKeepRanges(cuts: TimeRange[], duration: number): TimeRange[] {
+/**
+ * Invert cut ranges into the ranges of the original media that remain —
+ * within [from, end), the whole file by default.
+ */
+export function getKeepRanges(
+  cuts: TimeRange[],
+  end: number,
+  from = 0
+): TimeRange[] {
   const keeps: TimeRange[] = [];
-  let cursor = 0;
+  let cursor = from;
   for (const cut of cuts) {
+    if (cut.start >= end) break;
     if (cut.start > cursor + 1e-4) keeps.push({ start: cursor, end: cut.start });
     cursor = Math.max(cursor, cut.end);
   }
-  if (cursor < duration - 1e-4) keeps.push({ start: cursor, end: duration });
+  if (cursor < end - 1e-4) keeps.push({ start: cursor, end });
   return keeps;
 }
 
 /**
  * Subdivide keep ranges by scene boundaries into selectable clip segments.
- * Boundaries that fall inside a cut are ignored for geometry.
+ * Boundaries that fall inside a cut are ignored for geometry. Keeps and
+ * boundaries carry the copy they belong to (absent = the original); a boundary
+ * only splits keeps of its own copy.
  */
 export function getClipSegments(
-  keepRanges: TimeRange[],
+  keepRanges: Array<TimeRange & { copy?: number }>,
   sceneBoundaries: SceneBoundary[]
 ): ClipSegment[] {
-  const times = sceneBoundaries
-    .map((b) => b.time)
-    .sort((a, b) => a - b);
+  const times = new Map<number, number[]>();
+  for (const b of sceneBoundaries) {
+    const c = b.copy ?? 0;
+    const list = times.get(c);
+    if (list) list.push(b.time);
+    else times.set(c, [b.time]);
+  }
+  for (const list of times.values()) list.sort((a, b) => a - b);
 
   const clips: ClipSegment[] = [];
   for (const keep of keepRanges) {
-    const splits = times.filter(
+    const copy = keep.copy ?? 0;
+    const prefix = copy === 0 ? "c" : `c${copy}`;
+    const splits = (times.get(copy) ?? []).filter(
       (t) => t > keep.start + SPLIT_EPSILON && t < keep.end - SPLIT_EPSILON
     );
     let cursor = keep.start;
     for (const t of splits) {
       clips.push({
-        id: `c-${cursor.toFixed(4)}-${t.toFixed(4)}`,
+        id: `${prefix}-${cursor.toFixed(4)}-${t.toFixed(4)}`,
         start: cursor,
         end: t,
         index: clips.length,
+        copy,
       });
       cursor = t;
     }
     clips.push({
-      id: `c-${cursor.toFixed(4)}-${keep.end.toFixed(4)}`,
+      id: `${prefix}-${cursor.toFixed(4)}-${keep.end.toFixed(4)}`,
       start: cursor,
       end: keep.end,
       index: clips.length,
+      copy,
     });
   }
   return clips;
@@ -153,11 +172,14 @@ export function getClipSegments(
  */
 export function getActiveSceneBoundaries(
   boundaries: SceneBoundary[],
-  keepRanges: TimeRange[]
+  keepRanges: Array<TimeRange & { copy?: number }>
 ): SceneBoundary[] {
   return boundaries.filter((b) =>
     keepRanges.some(
-      (k) => b.time > k.start + SPLIT_EPSILON && b.time < k.end - SPLIT_EPSILON
+      (k) =>
+        (k.copy ?? 0) === (b.copy ?? 0) &&
+        b.time > k.start + SPLIT_EPSILON &&
+        b.time < k.end - SPLIT_EPSILON
     )
   );
 }
@@ -166,7 +188,8 @@ export function getActiveSceneBoundaries(
  * Place each split in the transcript: the word it reads as sitting in front of.
  * Returns wordId → boundary. A split landing mid-word snaps to the nearer side so
  * the marker always falls in a gap between words; one in trailing silence has no
- * word to anchor to and is left out (the timeline still shows it).
+ * word to anchor to and is left out (the timeline still shows it). `words` must
+ * be in source order and belong to the boundaries' copy.
  */
 export function mapSplitsToWords(
   words: Word[],
@@ -181,30 +204,6 @@ export function mapSplitsToWords(
     if (i < words.length) map.set(words[i].id, b);
   }
   return map;
-}
-
-/** Duration of the edited video (sum of kept ranges). */
-export function getEditedDuration(cuts: TimeRange[], duration: number): number {
-  const cut = cuts.reduce((acc, r) => acc + (r.end - r.start), 0);
-  return Math.max(0, duration - cut);
-}
-
-/** Map a time in original media to the corresponding time in the edited cut. */
-export function originalToEdited(t: number, cuts: TimeRange[]): number {
-  let removed = 0;
-  for (const cut of cuts) {
-    if (t >= cut.end) removed += cut.end - cut.start;
-    else if (t > cut.start) removed += t - cut.start;
-  }
-  return Math.max(0, t - removed);
-}
-
-/** Find the cut range containing time t, if any. */
-export function cutRangeAt(t: number, cuts: TimeRange[]): TimeRange | null {
-  for (const cut of cuts) {
-    if (t >= cut.start && t < cut.end) return cut;
-  }
-  return null;
 }
 
 /**
@@ -285,8 +284,8 @@ export function canSplitAt(
   sceneBoundaries: SceneBoundary[]
 ): boolean {
   if (t <= SPLIT_EPSILON || t >= duration - SPLIT_EPSILON) return false;
-  if (cutRangeAt(t, cuts)) return false;
   for (const cut of cuts) {
+    if (t >= cut.start && t < cut.end) return false;
     if (Math.abs(t - cut.start) < SPLIT_EPSILON || Math.abs(t - cut.end) < SPLIT_EPSILON) {
       return false;
     }
