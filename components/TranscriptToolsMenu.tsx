@@ -4,11 +4,8 @@ import { useId, useMemo, useState } from "react";
 import { Undo2, VolumeX, WandSparkles, Zap, type LucideIcon } from "lucide-react";
 import { useEditorStore } from "@/lib/store";
 import { findDeletedFillerWordIds, findFillerWordIds } from "@/lib/fillers";
-import {
-  findSilenceCuts,
-  findSilenceRanges,
-  MIN_SILENCE_DURATION,
-} from "@/lib/silences";
+import { findSilenceCuts, findSilenceRanges } from "@/lib/silences";
+import { useSilenceThreshold } from "@/hooks/useSilenceThreshold";
 import Popover, { PopoverContent, PopoverTrigger } from "./Popover";
 import { useI18n } from "./I18nProvider";
 import type { MessageKey } from "@/lib/i18n";
@@ -89,6 +86,7 @@ export default function TranscriptToolsMenu() {
   const restoreWords = useEditorStore((s) => s.restoreWords);
   const cutRanges = useEditorStore((s) => s.cutRanges);
   const restoreRanges = useEditorStore((s) => s.restoreRanges);
+  const { threshold: silenceThreshold } = useSilenceThreshold();
 
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -97,7 +95,7 @@ export default function TranscriptToolsMenu() {
     () => ({
       fillerIds: findFillerWordIds(words),
       deletedFillerIds: findDeletedFillerWordIds(words),
-      silenceRanges: findSilenceRanges(words, duration, manualCuts),
+      silenceRanges: findSilenceRanges(words, duration, manualCuts, silenceThreshold),
       silenceCuts: findSilenceCuts(words, manualCuts),
       deleteWords,
       restoreWords,
@@ -108,6 +106,7 @@ export default function TranscriptToolsMenu() {
       words,
       duration,
       manualCuts,
+      silenceThreshold,
       deleteWords,
       restoreWords,
       cutRanges,
@@ -158,7 +157,7 @@ export default function TranscriptToolsMenu() {
               type="button"
               role="menuitem"
               title={t(tool.titleKey, {
-                seconds: MIN_SILENCE_DURATION,
+                seconds: silenceThreshold,
               })}
               onClick={() => {
                 tool.run(ctx);

@@ -19,6 +19,8 @@ export const en = {
   "settings.light": "Light",
   "settings.dark": "Dark",
   "settings.interfaceLanguage": "Interface language",
+  "settings.silenceThreshold": "Silence threshold",
+  "settings.silenceThresholdHelp": 'How long a pause must be before "Remove silences" cuts it.',
   "settings.privacy": "Privacy",
   "settings.helpImprove": "Help improve the app",
   "settings.telemetryHelp": "Send anonymous feature usage statistics and crash reports.",

@@ -20,6 +20,8 @@ export const zhCN: Record<MessageKey, string> = {
   "settings.light": "浅色",
   "settings.dark": "深色",
   "settings.interfaceLanguage": "界面语言",
+  "settings.silenceThreshold": "静音阈值",
+  "settings.silenceThresholdHelp": "停顿要达到多长，“移除静音”才会剪掉它。",
   "settings.privacy": "隐私",
   "settings.helpImprove": "帮助改进应用",
   "settings.telemetryHelp": "发送匿名功能使用统计和崩溃报告。",
