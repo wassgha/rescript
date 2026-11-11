@@ -85,7 +85,8 @@ For desktop packaging, signing, and cutting releases, see
 3. **Edit** — deleting words produces "cut ranges" of the original media. The
    preview player skips them in real time and the timeline shows them in red.
    **Remove fillers** cuts every detected "um" / "uh" / etc. in one click.
-   **Remove silences** cuts pauses and dead air of 0.3s or longer.
+   **Shorten silences** shortens every pause longer than 0.3s (adjustable) to
+   that length, keeping more of it after the previous word than before the next.
 4. **Export** — the kept ranges are trimmed and concatenated with an ffmpeg
    filter graph and re-encoded (`libx264`/`aac`), so cuts are word-accurate.
 

@@ -20,7 +20,7 @@ User-facing progress for Rescript. Items are marked done when they shipped to
 ### Editing & transcript tools
 - [x] Correct misrecognized words (selection → Correct popover; timings redistributed)
 - [x] One-click **Remove fillers** (um / uh / etc.)
-- [x] One-click **Remove silences** (pauses / dead air ≥ 0.3s)
+- [x] One-click **Shorten silences** (pauses / dead air shortened to an adjustable length)
 - [x] Import your own transcript (SRT / VTT / JSON) instead of running Whisper
 - [x] Import cancel UX (no stuck selector / blocked media drop)
 - [x] Manual speaker controls (rename, change, add, move label, merge, remove)

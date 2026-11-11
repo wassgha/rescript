@@ -78,7 +78,7 @@ function word(id: number, text: string, start: number, end: number): Word {
 }
 
 {
-  // Pure silence between words is not a disfluency (Remove silences owns that).
+  // Pure silence between words is not a disfluency (Shorten silences owns that).
   const words = [word(0, "Hi", 1.0, 1.4), word(1, "there", 2.2, 2.6)];
   const frames = framesFor(
     [
