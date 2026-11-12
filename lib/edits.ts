@@ -77,7 +77,7 @@ export function getCutRanges(
   const fromWords = getWordCutRanges(words, duration);
   const fromManual = manualCuts.map((c) => ({ start: c.start, end: c.end }));
   // Bridge short gaps between cuts, but never across a kept word: a short
-  // word between two pauses cut by "Remove silences" has to stay audible.
+  // word between two pauses cut by "Shorten silences" has to stay audible.
   const exact = mergeCutRanges([...fromWords, ...fromManual], duration, 1e-4);
   const kept = words.filter((w) => !w.deleted);
   const merged: TimeRange[] = [];
