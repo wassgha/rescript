@@ -32,7 +32,7 @@ import {
 } from "@/lib/projects";
 import { isElectron } from "@/lib/platform";
 import { useEditorStore } from "@/lib/store";
-import type { SpeakerInfo, Word } from "@/lib/types";
+import type { SourceCopy, SpeakerInfo, Word } from "@/lib/types";
 import { useI18n } from "./I18nProvider";
 import {
   formatRelativeTime,
@@ -162,7 +162,7 @@ export default function UploadScreen({
 }: {
   onFile: (
     file: File,
-    options?: { words?: Word[]; speakers?: SpeakerInfo[] }
+    options?: { words?: Word[]; speakers?: SpeakerInfo[]; copies?: SourceCopy[] }
   ) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -221,7 +221,11 @@ export default function UploadScreen({
           alert(t("editor.chooseTranscript"));
           return;
         }
-        onFile(file, { words: pending.words, speakers: pending.speakers });
+        onFile(file, {
+          words: pending.words,
+          speakers: pending.speakers,
+          copies: pending.copies,
+        });
         return;
       }
       onFile(file);

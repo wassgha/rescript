@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
-import { useEditorStore } from "@/lib/store";
-import { getCutRanges, isWordCutOut } from "@/lib/edits";
+import { activeWordOf, liveSequence, useEditorStore } from "@/lib/store";
+import { isWordCutOut } from "@/lib/edits";
+import { copyOf, cutsOf } from "@/lib/sequence";
 import { getFFmpeg, releaseFFmpeg } from "@/lib/ffmpeg";
 import { activeMediaEngine, extractAudio } from "@/lib/mediaEngine";
 import { VAD_SAMPLE_RATE } from "@/lib/vad";
@@ -165,6 +166,7 @@ export default function Editor() {
         loadVideo(file, {
           words: pendingTranscript.words,
           speakers: pendingTranscript.speakers,
+          copies: pendingTranscript.copies,
         });
         return;
       }
@@ -321,10 +323,11 @@ export default function Editor() {
         if (s.selectedWordIds.length > 0) {
           e.preventDefault();
           e.stopPropagation();
-          const cuts = getCutRanges(s.words, s.duration, s.manualCuts);
+          const seq = liveSequence();
           const selected = s.words.filter((w) => s.selectedWordIds.includes(w.id));
           const allCutOut =
-            selected.length > 0 && selected.every((w) => isWordCutOut(w, cuts));
+            selected.length > 0 &&
+            selected.every((w) => isWordCutOut(w, cutsOf(seq, copyOf(w))));
           if (allCutOut) s.restoreWords(s.selectedWordIds);
           else s.deleteWords(s.selectedWordIds);
           s.setSelectedWords([]);
@@ -339,6 +342,50 @@ export default function Editor() {
     };
     document.addEventListener("keydown", handler, true);
     return () => document.removeEventListener("keydown", handler, true);
+  }, []);
+
+  // Cut / Copy / Paste on selected words — keyboard, context menu and the
+  // app's Edit menu all arrive as these events. Text fields (including the
+  // transcript's screen-reader textarea) handle their own. Paste goes in front
+  // of the selected words, else in front of the word at the playhead, else at
+  // the end. It is skipped when the system clipboard holds other text — the
+  // user copied something else since.
+  useEffect(() => {
+    const onCopy = (e: ClipboardEvent, cut: boolean) => {
+      if (isTypingTarget(e.target)) return;
+      const s = useEditorStore.getState();
+      if (s.status !== "ready" || s.exportOpen || s.selectedWordIds.length === 0) return;
+      e.preventDefault();
+      const text = cut ? s.cutWords(s.selectedWordIds) : s.copyWords(s.selectedWordIds);
+      if (text !== null) e.clipboardData?.setData("text/plain", text);
+      window.getSelection()?.removeAllRanges();
+      if (!cut) s.setSelectedWords([]);
+    };
+    const handleCut = (e: ClipboardEvent) => onCopy(e, true);
+    const handleCopy = (e: ClipboardEvent) => onCopy(e, false);
+    const handlePaste = (e: ClipboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      const s = useEditorStore.getState();
+      if (s.status !== "ready" || s.exportOpen || !s.clipboard) return;
+      const pasted = e.clipboardData?.getData("text/plain");
+      if (pasted && pasted !== s.clipboard.text) return;
+      e.preventDefault();
+      const selected = new Set(s.selectedWordIds);
+      let at = s.words.findIndex((w) => selected.has(w.id));
+      if (at < 0) {
+        const active = activeWordOf(s);
+        at = active < 0 ? s.words.length : s.words.findIndex((w) => w.id === active);
+      }
+      s.pasteWords(at < 0 ? s.words.length : at);
+    };
+    document.addEventListener("cut", handleCut);
+    document.addEventListener("copy", handleCopy);
+    document.addEventListener("paste", handlePaste);
+    return () => {
+      document.removeEventListener("cut", handleCut);
+      document.removeEventListener("copy", handleCopy);
+      document.removeEventListener("paste", handlePaste);
+    };
   }, []);
 
   // Flush pending autosave when the tab hides or unloads.

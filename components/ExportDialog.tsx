@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Clapperboard,
   Download,
@@ -13,9 +13,12 @@ import {
 import { useEditorStore, type ExportResult } from "@/lib/store";
 import { reportError } from "@/lib/sentry";
 import { trackEvent } from "@/lib/telemetry";
-import { formatTime, getCutRanges, getEditedDuration, getKeepRanges } from "@/lib/edits";
+import { formatTime } from "@/lib/edits";
+import { editList, sequenceFor } from "@/lib/sequence";
 import {
   defaultExportResolution,
+  exportInputCount,
+  MAX_EXPORT_INPUTS,
   type AudioExportFormat,
   type VideoExportFormat,
   type VideoExportResolution,
@@ -40,7 +43,7 @@ import {
 } from "@/lib/serializeTimeline";
 import { AAF_MAX_CLIPS } from "@/lib/aaf/patchAaf";
 import { videoFrameRateFor } from "@/lib/media";
-import { useCutRanges } from "@/hooks/useCutRanges";
+import { useSequence } from "@/hooks/useSequence";
 import { useI18n } from "./I18nProvider";
 import { localizeRuntimeMessage } from "@/lib/i18n";
 import { en } from "@/lib/i18n/messages/en";
@@ -153,15 +156,11 @@ export default function ExportDialog() {
   const [renderEngine, setRenderEngine] = useState<MediaEngine | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const cuts = useCutRanges();
-  const editedDuration = useMemo(
-    () => getEditedDuration(cuts, duration),
-    [cuts, duration]
-  );
-  const keepRangeCount = useMemo(
-    () => getKeepRanges(cuts, duration).length,
-    [cuts, duration]
-  );
+  // Every export follows the edit in playback order: reordered and pasted
+  // pieces come out where they play.
+  const seq = useSequence();
+  const editedDuration = seq.editedDuration;
+  const keepRangeCount = editList(seq).length;
   const aafOverCap =
     timelineFormat === "aaf" && keepRangeCount > AAF_MAX_CLIPS;
   const timelineMeta = TIMELINE_FORMATS.find((f) => f.value === timelineFormat);
@@ -253,6 +252,16 @@ export default function ExportDialog() {
     if (!videoFile) return;
     if (activeTab === "video" && isAudioProject) return;
     if (activeTab === "audio" && !hasAudioTrack) return;
+    const keeps = editList(seq);
+    // Each backward jump in the edit opens the file once more; past the cap
+    // neither engine can render it.
+    const inputs = exportInputCount(keeps);
+    if (inputs > MAX_EXPORT_INPUTS) {
+      setError(
+        t("error.exportTooManyJumps", { count: inputs - 1, max: MAX_EXPORT_INPUTS - 1 })
+      );
+      return;
+    }
 
     setError(null);
     setProgress(0);
@@ -264,7 +273,6 @@ export default function ExportDialog() {
     const stillCurrent = () => useEditorStore.getState().videoFile === videoFile;
     try {
       setRenderEngine(await activeMediaEngine());
-      const keeps = getKeepRanges(cuts, duration);
       const result = await exportMedia(
         videoFile,
         keeps,
@@ -317,14 +325,14 @@ export default function ExportDialog() {
     activeTab,
     isAudioProject,
     hasAudioTrack,
-    cuts,
-    duration,
+    seq,
     editedDuration,
     audioFormat,
     videoFormat,
     resolution,
     setStatus,
     setExportResult,
+    t,
   ]);
 
   /** Desktop: native Save dialog, then move the render to where the user chose. */
@@ -359,11 +367,11 @@ export default function ExportDialog() {
     // that landed while this dialog was mounted can't export a stale snapshot.
     const s = useEditorStore.getState();
     if (s.words.length === 0) return;
-    const liveCuts = getCutRanges(s.words, s.duration, s.manualCuts);
     try {
       downloadTranscript(s.words, textFormat, baseName, {
         duration: s.duration,
-        cuts: liveCuts,
+        manualCuts: s.manualCuts,
+        copies: s.copies,
         speakers: speakersFromWords(s.words, s.speakers),
         ...(textSupportsTimestamps ? { timestamps: includeTimestamps } : {}),
         ...(textSupportsShortCues ? { shortCues } : {}),
@@ -396,7 +404,8 @@ export default function ExportDialog() {
     setTimelineBusy(true);
     setError(null);
     try {
-      const keeps = getKeepRanges(cuts, duration);
+      const s = useEditorStore.getState();
+      const keeps = editList(sequenceFor(s.words, s.manualCuts, s.copies, s.duration));
       const videoEl = useEditorStore.getState().videoEl;
       const width =
         videoEl && "videoWidth" in videoEl
@@ -426,7 +435,6 @@ export default function ExportDialog() {
     }
   }, [
     videoFile,
-    cuts,
     duration,
     timelineFormat,
     timelineFrameRate,
@@ -534,7 +542,7 @@ export default function ExportDialog() {
           activeTab === "timeline") && (
           <div className="mb-5 grid grid-cols-3 gap-2 text-center">
             <Stat label={t("export.statOriginal")} value={formatTime(duration)} />
-            <Stat label={t("export.statCuts")} value={String(cuts.length)} />
+            <Stat label={t("export.statCuts")} value={String(seq.displayCuts.length)} />
             <Stat label={t("export.statEdited")} value={formatTime(editedDuration)} accent />
           </div>
         )}

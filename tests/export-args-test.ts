@@ -10,6 +10,9 @@ import {
   buildVideoExport,
   createProgressParser,
   defaultExportResolution,
+  ExportInputLimitError,
+  exportInputCount,
+  MAX_EXPORT_INPUTS,
   parseExportRequest,
   progressRatio,
   scaleFilter,
@@ -43,6 +46,7 @@ function main() {
         "[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]",
       "video filtergraph"
     );
+    eq(plan.inputs, [[]], "a monotonic edit reads one plain input");
     eq(plan.streamArgs, ["-map", "[outv]", "-map", "[outa]"], "video maps");
     eq(
       plan.codecArgs,
@@ -148,6 +152,119 @@ function main() {
     eq(wav.mime, "audio/wav", "wav mime");
   }
 
+  // A monotonic edit is one run however late it starts, and ranges that touch
+  // stay in it: one plain input, trims in absolute source seconds.
+  {
+    const late = buildVideoExport([{ start: 12.457, end: 15.2 }, { start: 15.2, end: 20 }], {});
+    eq(late.inputs, [[]], "late monotonic edit has no seek");
+    eq(
+      late.filter,
+      "[0:v]trim=start=12.457:end=15.200,setpts=PTS-STARTPTS[v0];" +
+        "[0:a]atrim=start=12.457:end=15.200,asetpts=PTS-STARTPTS[a0];" +
+        "[0:v]trim=start=15.200:end=20.000,setpts=PTS-STARTPTS[v1];" +
+        "[0:a]atrim=start=15.200:end=20.000,asetpts=PTS-STARTPTS[a1];" +
+        "[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]",
+      "late monotonic filtergraph"
+    );
+    eq(buildAudioExport([{ start: 12.457, end: 15.2 }]).inputs, [[]], "audio: one plain input");
+  }
+
+  // A reordered edit: every monotonic run gets its own input, seeked to a
+  // whole second two before the run starts, and its trims move with it. The
+  // repeat of the same range is a run of its own.
+  {
+    const reordered = [
+      { start: 12.457, end: 15.2 },
+      { start: 3.333, end: 5 },
+      { start: 3.333, end: 5 },
+    ];
+    const plan = buildVideoExport(reordered, {});
+    eq(
+      plan.inputs,
+      [
+        ["-ss", "10", "-t", "6.200"],
+        ["-ss", "1", "-t", "5.000"],
+        ["-ss", "1", "-t", "5.000"],
+      ],
+      "reordered edit: one seeked input per run, a repeat included"
+    );
+    eq(
+      plan.filter,
+      "[0:v]trim=start=2.457:end=5.200,setpts=PTS-STARTPTS[v0];" +
+        "[0:a]atrim=start=2.457:end=5.200,asetpts=PTS-STARTPTS[a0];" +
+        "[1:v]trim=start=2.333:end=4.000,setpts=PTS-STARTPTS[v1];" +
+        "[1:a]atrim=start=2.333:end=4.000,asetpts=PTS-STARTPTS[a1];" +
+        "[2:v]trim=start=2.333:end=4.000,setpts=PTS-STARTPTS[v2];" +
+        "[2:a]atrim=start=2.333:end=4.000,asetpts=PTS-STARTPTS[a2];" +
+        "[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[outv][outa]",
+      "reordered filtergraph reads each run's own input, relative to its seek"
+    );
+    eq(plan.streamArgs, ["-map", "[outv]", "-map", "[outa]"], "reordered maps are unchanged");
+    eq(
+      buildAudioExport(reordered, { format: "wav" }).inputs,
+      plan.inputs,
+      "audio export splits into the same runs"
+    );
+    eq(
+      buildAudioExport(reordered, { format: "wav" }).filter,
+      "[0:a]atrim=start=2.457:end=5.200,asetpts=PTS-STARTPTS[a0];" +
+        "[1:a]atrim=start=2.333:end=4.000,asetpts=PTS-STARTPTS[a1];" +
+        "[2:a]atrim=start=2.333:end=4.000,asetpts=PTS-STARTPTS[a2];" +
+        "[a0][a1][a2]concat=n=3:v=0:a=1[outa]",
+      "reordered audio filtergraph"
+    );
+  }
+
+  // Several ranges can share a run; a run near the start of the file has no
+  // seek (its offset would be negative) but is still cut off at its last range.
+  {
+    const plan = buildVideoExport(
+      [
+        { start: 20, end: 22 },
+        { start: 23, end: 25 },
+        { start: 1, end: 2 },
+        { start: 3, end: 4 },
+      ],
+      { withAudio: false }
+    );
+    eq(plan.inputs, [["-ss", "18", "-t", "8.000"], ["-t", "5.000"]], "runs of several ranges");
+    eq(
+      plan.filter,
+      "[0:v]trim=start=2.000:end=4.000,setpts=PTS-STARTPTS[v0];" +
+        "[0:v]trim=start=5.000:end=7.000,setpts=PTS-STARTPTS[v1];" +
+        "[1:v]trim=start=1.000:end=2.000,setpts=PTS-STARTPTS[v2];" +
+        "[1:v]trim=start=3.000:end=4.000,setpts=PTS-STARTPTS[v3];" +
+        "[v0][v1][v2][v3]concat=n=4:v=1:a=0[outv]",
+      "silent reordered filtergraph"
+    );
+    eq(exportInputCount([{ start: 20, end: 22 }, { start: 1, end: 2 }]), 2, "input count");
+  }
+
+  // The input cap: the 48th run still renders, the 49th throws.
+  {
+    const descending = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ start: 1000 - i * 10, end: 1001 - i * 10 }));
+    eq(MAX_EXPORT_INPUTS, 48, "input cap");
+    eq(buildVideoExport(descending(48), {}).inputs.length, 48, "48 inputs are allowed");
+    eq(buildAudioExport(descending(48)).inputs.length, 48, "48 audio inputs are allowed");
+    for (const build of [
+      () => buildVideoExport(descending(49), {}),
+      () => buildAudioExport(descending(49)),
+    ]) {
+      let thrown: unknown;
+      try {
+        build();
+      } catch (err) {
+        thrown = err;
+      }
+      assert(thrown instanceof ExportInputLimitError, "49 inputs throw ExportInputLimitError");
+      eq([thrown.inputs, thrown.max], [49, 48], "the error reports the needed and allowed inputs");
+    }
+    // Many ranges in few runs are fine.
+    const ascending = Array.from({ length: 500 }, (_, i) => ({ start: i, end: i + 0.5 }));
+    eq(exportInputCount(ascending), 1, "a long monotonic edit is one input");
+  }
+
   // Request validation: what the main process accepts from the renderer.
   {
     const video = {
@@ -171,9 +288,12 @@ function main() {
       { ...video, kind: "gif" },
       { ...video, keepRanges: [] },
       { ...video, keepRanges: [{ start: 2, end: 1 }] },
-      { ...video, keepRanges: [{ start: 0, end: 2 }, { start: 1, end: 3 }] },
+      { ...video, keepRanges: [{ start: 0, end: 1 }, { start: 3, end: 3 }] },
+      { ...video, keepRanges: [{ start: 0, end: 1 }, { start: -1, end: 0.5 }] },
       { ...video, keepRanges: [{ start: Number.NaN, end: 1 }] },
       { ...video, keepRanges: [{ start: "0;[0:v]", end: 1 }] },
+      { ...video, keepRanges: [{ start: 0, end: Number.POSITIVE_INFINITY }] },
+      { ...video, keepRanges: [null] },
       { ...video, editedDuration: -1 },
       { ...video, options: { ...video.options, format: "mov" } },
       { ...video, options: { ...video.options, resolution: "480" } },
@@ -184,6 +304,23 @@ function main() {
     bad.forEach((request, i) => {
       eq(parseExportRequest(request), null, `malformed request #${i} is rejected`);
     });
+
+    // Reordered, repeated and overlapping ranges are an edit, not malformed
+    // input; the same range after itself is two inputs, not an error.
+    for (const keepRanges of [
+      [{ start: 4, end: 5 }, { start: 0, end: 1 }],
+      [{ start: 2, end: 3 }, { start: 2, end: 3 }],
+      [{ start: 0, end: 2 }, { start: 1, end: 3 }],
+    ]) {
+      const reordered = { ...video, keepRanges };
+      eq(parseExportRequest(reordered), reordered, "reordered request round-trips");
+    }
+
+    // The input cap is part of validation: more runs than MAX_EXPORT_INPUTS.
+    const runs = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ start: 1000 - i * 10, end: 1001 - i * 10 }));
+    assert(parseExportRequest({ ...video, keepRanges: runs(48) }), "48 runs are accepted");
+    eq(parseExportRequest({ ...video, keepRanges: runs(49) }), null, "49 runs are rejected");
 
     // Extra fields are dropped rather than passed through to the builder.
     const extra = parseExportRequest({

@@ -30,6 +30,8 @@ builds auto-update from GitHub Releases. Prefer the browser? Use the
 
 - 🔒 **Private by design** — no auth, no uploads; all media processing happens on-device
 - 📝 **Word-level editing** — select words, press ⌫, the cut follows the text
+- 🔀 **Reorder & duplicate** — cut, copy and paste words in the transcript; the
+  media follows in every export, and the timeline plays in the new order
 - 📥 **Import your own transcript** — skip Whisper and edit with an SRT, VTT, or JSON caption file
 - 📤 **Export hub** — video (MP4/WebM, 720p–4K), audio (M4A/MP3/WAV), transcript / captions (TXT/MD/DOCX/PDF/SRT/VTT/JSON, optional timestamps on documents), or NLE/DAW timeline (Resolve/Premiere/FCP/AAF/Reaper/Samplitude EDL/Blender)
 - 🧹 **Filler removal** — one-click cut of "um", "uh", and similar fillers
@@ -85,9 +87,12 @@ For desktop packaging, signing, and cutting releases, see
 3. **Edit** — deleting words produces "cut ranges" of the original media. The
    preview player skips them in real time and the timeline shows them in red.
    **Remove fillers** cuts every detected "um" / "uh" / etc. in one click.
-   **Remove silences** cuts pauses and dead air of 0.3s or longer.
-4. **Export** — the kept ranges are trimmed and concatenated with an ffmpeg
-   filter graph and re-encoded (`libx264`/`aac`), so cuts are word-accurate.
+   **Remove silences** cuts pauses and dead air of 0.3s or longer. Cut and
+   paste moves words (and the media they own) elsewhere; copy and paste plays a
+   stretch again as its own copy.
+4. **Export** — the kept ranges, in playback order, are trimmed and
+   concatenated with an ffmpeg filter graph and re-encoded (`libx264`/`aac`),
+   so cuts are word-accurate.
 
 ## Browser support
 

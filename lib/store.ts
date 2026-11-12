@@ -7,6 +7,7 @@ import type {
   ManualCut,
   ProgressInfo,
   SceneBoundary,
+  SourceCopy,
   SpeakerInfo,
   TimeRange,
   Word,
@@ -16,16 +17,32 @@ import {
   applyWordBounds,
   canSplitAt,
   carrySceneBoundaries,
-  cutRangeAt,
   deleteWordsCoveredBy,
   getClipSegments,
-  getCutRanges,
-  getKeepRanges,
   PLAYHEAD_EPSILON_S,
   restoreRangesResult,
   shrinkManualCuts,
+  SPLIT_EPSILON,
   trimEdgeResult,
 } from "./edits";
+import {
+  activeWordId,
+  copyOf,
+  cutsOf,
+  displayTimeInRun,
+  editedTimeInRun,
+  playheadPiece,
+  playheadRun,
+  ofCopy,
+  pasteClipboard,
+  pieceAtOrAfter,
+  sequenceFor,
+  snapshotSelection,
+  withSourceRanks,
+  wordsOfCopy,
+  type Clipboard,
+  type Sequence,
+} from "./sequence";
 import { isModelId, loadModelPreference, saveModelPreference } from "./models";
 import { isTranscriptSource, type TranscriptSource } from "./source";
 import { trackEvent } from "./telemetry";
@@ -97,6 +114,7 @@ interface PendingTranscript {
   name: string;
   words: Word[];
   speakers?: SpeakerInfo[];
+  copies?: SourceCopy[];
 }
 
 interface EditorState {
@@ -146,13 +164,17 @@ interface EditorState {
   speakers: SpeakerInfo[];
   manualCuts: ManualCut[];
   sceneBoundaries: SceneBoundary[];
+  /** Pasted duplicates of the media; words, cuts and splits refer to them by id. */
+  copies: SourceCopy[];
+  /** Words cut or copied from the transcript, ready to paste. */
+  clipboard: Clipboard | null;
   showDeleted: boolean;
   past: EditSnapshot[];
   future: EditSnapshot[];
-  /** Selected timeline clip index, or null. */
+  /** Selected timeline clip index (into the clips of the playback sequence), or null. */
   selectedClipIndex: number | null;
   /**
-   * Selected cut-range index (from `getCutRanges`), or null.
+   * Selected cut index (into the sequence's `displayCuts`), or null.
    * Used to restore a deleted clip / silence section from the timeline.
    */
   selectedCutIndex: number | null;
@@ -171,6 +193,16 @@ interface EditorState {
 
   // Playback (mirrored from the <video>/<audio> element for UI rendering)
   currentTime: number;
+  /**
+   * Copy the playhead is in. The same source time can play more than once;
+   * (currentCopy, currentTime) names exactly one moment of the edit.
+   */
+  currentCopy: number;
+  /**
+   * Index of the sequence piece playback is in, as last reported by the
+   * player; null after a seek. Disambiguates a run edge (see playheadPiece).
+   */
+  currentPiece: number | null;
   playing: boolean;
   videoEl: HTMLMediaElement | null;
 
@@ -182,7 +214,7 @@ interface EditorState {
   /** Load media for editing. Pass `words` to skip Whisper and use that transcript. */
   loadVideo: (
     file: File,
-    options?: { words?: Word[]; speakers?: SpeakerInfo[] }
+    options?: { words?: Word[]; speakers?: SpeakerInfo[]; copies?: SourceCopy[] }
   ) => void;
   /** Restore a saved project from IndexedDB (no re-transcription). */
   openProject: (id: string) => Promise<void>;
@@ -207,7 +239,7 @@ interface EditorState {
    * Replace the current transcript with an imported one (keeps media).
    * Used when the user brings their own SRT/VTT/JSON instead of Whisper.
    */
-  importWords: (words: Word[], speakers?: SpeakerInfo[]) => void;
+  importWords: (words: Word[], speakers?: SpeakerInfo[], copies?: SourceCopy[]) => void;
   /** Rename a speaker everywhere it appears. */
   renameSpeaker: (id: number, name: string) => void;
   /** Create a new speaker; returns its id (or -1 if unchanged). */
@@ -232,9 +264,9 @@ interface EditorState {
   deleteWords: (ids: number[]) => void;
   restoreWords: (ids: number[]) => void;
   /** Cut arbitrary time ranges (e.g. detected silences) as manual cuts. */
-  cutRanges: (ranges: TimeRange[]) => void;
+  cutRanges: (ranges: Array<TimeRange & { copy?: number }>) => void;
   /** Restore arbitrary cut ranges (manual cuts + covered deleted words). */
-  restoreRanges: (ranges: TimeRange[]) => void;
+  restoreRanges: (ranges: Array<TimeRange & { copy?: number }>) => void;
   /** Cut the currently selected timeline clip out of the edited media. */
   deleteSelectedClip: () => boolean;
   /** Restore the currently selected cut range (deleted clip / silence). */
@@ -247,6 +279,15 @@ interface EditorState {
   splitAtPlayhead: () => boolean;
   /** Remove a scene boundary by id (join adjacent clips). */
   removeSceneBoundary: (id: number) => void;
+  /** Put words on the clipboard. Returns the plain text copied. */
+  copyWords: (ids: number[]) => string | null;
+  /** Put words on the clipboard and cut them; pasting moves them. Returns the text. */
+  cutWords: (ids: number[]) => string | null;
+  /**
+   * Paste the clipboard before array index `at` (words.length = at the end):
+   * moves the words of a fresh cut, otherwise inserts a duplicate.
+   */
+  pasteWords: (at: number) => boolean;
   /**
    * Move one edge of a kept region from `from` to `to` (original-media times).
    * `edge` names the side that stays kept ("in" = the clip to the right of the
@@ -254,7 +295,7 @@ interface EditorState {
    * cuts or reclaims. Edges are addressed by time, not clip index, because a
    * trim can merge or split clips mid-drag and renumber them.
    */
-  trimEdge: (edge: "in" | "out", from: number, to: number) => void;
+  trimEdge: (edge: "in" | "out", from: number, to: number, copy: number) => void;
   setSelectedClipIndex: (index: number | null) => void;
   setSelectedCutIndex: (index: number | null) => void;
   setSelectedWords: (ids: number[]) => void;
@@ -265,8 +306,10 @@ interface EditorState {
   undo: () => void;
   redo: () => void;
   toggleShowDeleted: () => void;
-  setCurrentTime: (t: number) => void;
-  seekTo: (t: number) => void;
+  /** Mirror the player's position (the piece it is in, when known). */
+  setCurrentTime: (t: number, copy?: number, piece?: number | null) => void;
+  /** Move the playhead to source time `t` (of `copy`, default: the current one). */
+  seekTo: (t: number, copy?: number) => void;
   setPlaying: (p: boolean) => void;
   setVideoEl: (el: HTMLMediaElement | null) => void;
   /** Play/pause, skipping out of cut ranges and restarting from the start if parked at the end. */
@@ -299,17 +342,13 @@ function pushHistory(past: EditSnapshot[], entry: EditSnapshot): EditSnapshot[] 
   return next.length > MAX_UNDO_STEPS ? next.slice(next.length - MAX_UNDO_STEPS) : next;
 }
 
-function snapshotOf(s: {
-  words: Word[];
-  speakers: SpeakerInfo[];
-  manualCuts: ManualCut[];
-  sceneBoundaries: SceneBoundary[];
-}): EditSnapshot {
+function snapshotOf(s: EditSnapshot): EditSnapshot {
   return {
     words: s.words,
     speakers: s.speakers,
     manualCuts: s.manualCuts,
     sceneBoundaries: s.sceneBoundaries,
+    copies: s.copies,
   };
 }
 
@@ -318,8 +357,55 @@ function snapshotsEqual(a: EditSnapshot, b: EditSnapshot): boolean {
     a.words === b.words &&
     a.speakers === b.speakers &&
     a.manualCuts === b.manualCuts &&
-    a.sceneBoundaries === b.sceneBoundaries
+    a.sceneBoundaries === b.sceneBoundaries &&
+    a.copies === b.copies
   );
+}
+
+function seqOf(s: {
+  words: Word[];
+  manualCuts: ManualCut[];
+  copies: SourceCopy[];
+  duration: number;
+}): Sequence {
+  return sequenceFor(s.words, s.manualCuts, s.copies, s.duration);
+}
+
+/** Mark items as belonging to `copy`; the original's items carry no copy field. */
+function tagCopy<T extends { copy?: number }>(items: T[], copy: number): T[] {
+  return items.map((x) => {
+    if (copy !== 0) return x.copy === copy ? x : { ...x, copy };
+    if (x.copy === undefined) return x;
+    const rest = { ...x };
+    delete rest.copy;
+    return rest;
+  });
+}
+
+/** Replace one copy's items (cuts, splits) with `next`, leaving other copies alone. */
+function replaceCopyItems<T extends { copy?: number }>(
+  all: T[],
+  copy: number,
+  next: T[]
+): T[] {
+  const others = all.filter((x) => copyOf(x) !== copy);
+  return others.length === 0 ? tagCopy(next, copy) : [...others, ...tagCopy(next, copy)];
+}
+
+/**
+ * Apply a source-time word edit to one copy only. `edit` sees that copy's words
+ * in source order and may change their fields but not their ids.
+ */
+function editCopyWords(
+  words: Word[],
+  copy: number,
+  edit: (copyWords: Word[]) => Word[]
+): Word[] {
+  const sub = wordsOfCopy(words, copy);
+  const next = edit(sub);
+  if (next === sub) return words;
+  const byId = new Map(next.map((w) => [w.id, w]));
+  return words.map((w) => (copyOf(w) === copy ? (byId.get(w.id) ?? w) : w));
 }
 
 function maxId(items: Array<{ id: number }>, fallback = 1): number {
@@ -340,6 +426,8 @@ function pushEdit(
       | "speakers"
       | "manualCuts"
       | "sceneBoundaries"
+      | "copies"
+      | "clipboard"
       | "selectedClipIndex"
       | "selectedCutIndex"
       | "selectedWordIds"
@@ -349,13 +437,15 @@ function pushEdit(
   >
 ) {
   const s = get();
+  // Piece indices belong to the sequence before the edit.
   if (s.gestureActive) {
     // Coalesce into the snapshot already pushed by beginGesture.
-    set({ future: [], ...next });
+    set({ future: [], currentPiece: null, ...next });
   } else {
     set({
       past: pushHistory(s.past, snapshotOf(s)),
       future: [],
+      currentPiece: null,
       ...next,
     });
   }
@@ -384,6 +474,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   speakers: [],
   manualCuts: [],
   sceneBoundaries: [],
+  copies: [],
+  clipboard: null,
   showDeleted: true,
   past: [],
   future: [],
@@ -395,6 +487,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   gestureActive: false,
 
   currentTime: 0,
+  currentCopy: 0,
+  currentPiece: null,
   playing: false,
   videoEl: null,
 
@@ -433,6 +527,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       speakers,
       manualCuts: [],
       sceneBoundaries: [],
+      copies: imported ? (options?.copies ?? []) : [],
+      clipboard: null,
       past: [],
       future: [],
       selectedClipIndex: null,
@@ -444,6 +540,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       partialText: "",
       error: null,
       currentTime: 0,
+      currentCopy: 0,
+      currentPiece: null,
       exportResult: null,
       waveform: null,
       hasAudio: false,
@@ -494,6 +592,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       speakers,
       manualCuts,
       sceneBoundaries,
+      copies: record.copies ?? [],
+      clipboard: null,
       showDeleted: record.showDeleted,
       past: [],
       future: [],
@@ -505,6 +605,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       partialText: "",
       error: null,
       currentTime: 0,
+      currentCopy: 0,
+      currentPiece: null,
       playing: false,
       exportResult: null,
       exportOpen: false,
@@ -555,6 +657,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       speakers: speakersFromWords(words, speakers ?? []),
       manualCuts: [],
       sceneBoundaries: [],
+      copies: [],
+      currentPiece: null,
+      clipboard: null,
       past: [],
       future: [],
       selectedClipIndex: null,
@@ -563,7 +668,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
     if (get().status === "ready") bumpAutosave();
   },
-  importWords: (words, speakers) => {
+  importWords: (words, speakers, copies) => {
     if (words.length === 0) return;
     const { status } = get();
     if (
@@ -580,6 +685,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       speakers: speakersFromWords(words, speakers ?? []),
       manualCuts: [],
       sceneBoundaries: [],
+      copies: copies ?? [],
+      currentPiece: null,
+      clipboard: null,
       past: [],
       future: [],
       selectedClipIndex: null,
@@ -699,10 +807,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     let manualCuts = s.manualCuts;
     let nextManualCutId = s.nextManualCutId;
     for (const r of usable) {
-      const added = addManualCut(manualCuts, r.start, r.end, nextManualCutId);
-      manualCuts = added.cuts;
+      const copy = r.copy ?? 0;
+      const added = addManualCut(ofCopy(manualCuts, copy), r.start, r.end, nextManualCutId);
+      manualCuts = replaceCopyItems(manualCuts, copy, added.cuts);
       nextManualCutId = added.nextId;
-      words = deleteWordsCoveredBy(words, r.start, r.end);
+      words = editCopyWords(words, copy, (sub) => deleteWordsCoveredBy(sub, r.start, r.end));
     }
     pushEdit(get, set, {
       words,
@@ -715,17 +824,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
   restoreRanges: (ranges) => {
     const s = get();
-    const result = restoreRangesResult(
-      s.words,
-      s.manualCuts,
-      ranges,
-      s.nextManualCutId
-    );
-    if (!result) return;
+    let words = s.words;
+    let manualCuts = s.manualCuts;
+    let nextCutId = s.nextManualCutId;
+    let changed = false;
+    for (const copy of new Set(ranges.map((r) => r.copy ?? 0))) {
+      const result = restoreRangesResult(
+        wordsOfCopy(words, copy),
+        ofCopy(manualCuts, copy),
+        ranges.filter((r) => (r.copy ?? 0) === copy),
+        nextCutId
+      );
+      if (!result) continue;
+      changed = true;
+      words = editCopyWords(words, copy, () => result.words);
+      manualCuts = replaceCopyItems(manualCuts, copy, result.manualCuts);
+      nextCutId = result.nextCutId;
+    }
+    if (!changed) return;
     pushEdit(get, set, {
-      words: result.words,
-      manualCuts: result.manualCuts,
-      nextManualCutId: result.nextCutId,
+      words,
+      manualCuts,
+      nextManualCutId: nextCutId,
       selectedClipIndex: null,
       selectedCutIndex: null,
       selectedWordIds: [],
@@ -734,23 +854,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   deleteSelectedClip: () => {
     const s = get();
     if (s.selectedClipIndex == null || s.duration <= 0) return false;
-    const cuts = getCutRanges(s.words, s.duration, s.manualCuts);
-    const clips = getClipSegments(
-      getKeepRanges(cuts, s.duration),
-      s.sceneBoundaries
-    );
+    const clips = getClipSegments(seqOf(s).pieces, s.sceneBoundaries);
     const clip = clips.find((c) => c.index === s.selectedClipIndex);
     if (!clip || clip.end - clip.start <= 1e-4) return false;
-    get().cutRanges([{ start: clip.start, end: clip.end }]);
+    get().cutRanges([{ start: clip.start, end: clip.end, copy: clip.copy }]);
     return true;
   },
   restoreSelectedCut: () => {
     const s = get();
     if (s.selectedCutIndex == null || s.duration <= 0) return false;
-    const cuts = getCutRanges(s.words, s.duration, s.manualCuts);
-    const cut = cuts[s.selectedCutIndex];
+    const cut = seqOf(s).displayCuts[s.selectedCutIndex];
     if (!cut || cut.end - cut.start <= 1e-4) return false;
-    get().restoreRanges([{ start: cut.start, end: cut.end }]);
+    get().restoreRanges([{ start: cut.start, end: cut.end, copy: cut.copy }]);
     return true;
   },
   restoreWords: (ids) => {
@@ -765,13 +880,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     let manualCuts = s.manualCuts;
     let nextManualCutId = s.nextManualCutId;
     for (const w of restored) {
+      const copy = copyOf(w);
       const shrunk = shrinkManualCuts(
-        manualCuts,
+        ofCopy(manualCuts, copy),
         w.start,
         w.end,
         nextManualCutId
       );
-      manualCuts = shrunk.cuts;
+      manualCuts = replaceCopyItems(manualCuts, copy, shrunk.cuts);
       nextManualCutId = shrunk.nextId;
     }
 
@@ -796,9 +912,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return acc;
     }, []);
     if (indices.length === 0) return;
-    // Replace the whole contiguous slice covered by the selection.
+    // Replace the whole contiguous slice covered by the selection — which has
+    // to be one continuous stretch of media, not words from either side of a
+    // reorder or from different copies.
     const from = indices[0];
     const to = indices[indices.length - 1];
+    const seq = seqOf(get());
+    if (seq.runOf[from] !== seq.runOf[to]) return;
     const selected = words.slice(from, to + 1);
     if (selected.map((w) => w.text).join(" ") === tokens.join(" ")) return;
 
@@ -810,7 +930,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const totalChars = tokens.reduce((acc, t) => acc + t.length, 0);
     let nextId = words.reduce((m, w) => Math.max(m, w.id), 0) + 1;
     let cursor = spanStart;
-    const replacement: Word[] = tokens.map((t) => {
+    const { copy, src } = selected[0];
+    const replacement: Word[] = tokens.map((t, k) => {
       const dur = (span * t.length) / totalChars;
       const word: Word = {
         id: nextId++,
@@ -821,36 +942,56 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         // A correction implies the words are wanted, unless the whole
         // selection was already cut.
         deleted: selected.every((w) => w.deleted),
+        ...(copy !== undefined ? { copy } : {}),
+        // Fractional ranks slot in where the replaced words were; withSourceRanks
+        // makes them whole again.
+        ...(src !== undefined ? { src: src + k / tokens.length } : {}),
       };
       cursor = word.end;
       return word;
     });
     replacement[replacement.length - 1].end = spanEnd;
+    const spliced = [...words.slice(0, from), ...replacement, ...words.slice(to + 1)];
 
     pushEdit(get, set, {
-      words: [...words.slice(0, from), ...replacement, ...words.slice(to + 1)],
+      words: src !== undefined ? withSourceRanks(spliced) : spliced,
       // The corrected span is new words with new ids; nothing to stay selected.
       selectedWordIds: [],
     });
   },
 
   adjustWordBounds: (id, start, end) => {
-    const { words, duration } = get();
-    const next = applyWordBounds(words, id, start, end, duration);
+    const s = get();
+    const { words } = s;
+    const index = words.findIndex((w) => w.id === id);
+    if (index < 0) return;
+    // A word can only grow within the stretch of media it plays in: across a
+    // reorder its source neighbour plays somewhere else entirely.
+    const seq = seqOf(s);
+    const run = seq.runs[seq.runOf[index]];
+    const clamp = (t: number) => Math.min(run.end, Math.max(run.start, t));
+    const slice = words.slice(run.from, run.to);
+    const next = applyWordBounds(slice, id, clamp(start), clamp(end), run.end);
     if (!next) return;
-    pushEdit(get, set, { words: next });
+    pushEdit(get, set, {
+      words:
+        run.from === 0 && run.to === words.length
+          ? next
+          : [...words.slice(0, run.from), ...next, ...words.slice(run.to)],
+    });
   },
 
   splitAtPlayhead: () => {
     const s = get();
+    if (!canSplitAtPlayhead(s)) return false;
     const t = s.currentTime;
-    const cuts = getCutRanges(s.words, s.duration, s.manualCuts);
-    if (!canSplitAt(t, s.duration, cuts, s.sceneBoundaries)) return false;
+    const copy = s.currentCopy;
     const id = s.nextBoundaryId;
     pushEdit(get, set, {
-      sceneBoundaries: [...s.sceneBoundaries, { id, time: t }].sort(
-        (a, b) => a.time - b.time
-      ),
+      sceneBoundaries: [
+        ...s.sceneBoundaries,
+        copy === 0 ? { id, time: t } : { id, time: t, copy },
+      ].sort((a, b) => a.time - b.time),
       nextBoundaryId: id + 1,
     });
     return true;
@@ -866,38 +1007,109 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     });
   },
 
-  trimEdge: (edge, from, to) => {
+  copyWords: (ids) => {
     const s = get();
-    const result = trimEdgeResult(
+    const clipboard = snapshotSelection(
       s.words,
       s.manualCuts,
+      s.sceneBoundaries,
+      s.copies,
+      s.duration,
+      ids,
+      "copy"
+    );
+    if (!clipboard) return null;
+    set({ clipboard });
+    return clipboard.text;
+  },
+
+  cutWords: (ids) => {
+    const s = get();
+    const clipboard = snapshotSelection(
+      s.words,
+      s.manualCuts,
+      s.sceneBoundaries,
+      s.copies,
+      s.duration,
+      ids,
+      "cut"
+    );
+    if (!clipboard) return null;
+    const idSet = new Set(ids);
+    // Cutting is deleting until the words are pasted somewhere else.
+    pushEdit(get, set, {
+      clipboard,
+      words: s.words.map((w) => (idSet.has(w.id) && !w.deleted ? { ...w, deleted: true } : w)),
+      selectedCutIndex: null,
+      selectedWordIds: [],
+    });
+    return clipboard.text;
+  },
+
+  pasteWords: (at) => {
+    const s = get();
+    if (!s.clipboard || s.duration <= 0) return false;
+    const { state, moved, pastedIds } = pasteClipboard(
+      {
+        words: s.words,
+        manualCuts: s.manualCuts,
+        sceneBoundaries: s.sceneBoundaries,
+        copies: s.copies,
+      },
+      s.clipboard,
+      at,
+      s.duration
+    );
+    pushEdit(get, set, {
+      words: state.words,
+      manualCuts: state.manualCuts,
+      sceneBoundaries: state.sceneBoundaries,
+      copies: state.copies,
+      nextManualCutId: Math.max(s.nextManualCutId, maxId(state.manualCuts, 1)),
+      nextBoundaryId: Math.max(s.nextBoundaryId, maxId(state.sceneBoundaries, 1)),
+      clipboard: moved ? { ...s.clipboard, consumed: true } : s.clipboard,
+      selectedClipIndex: null,
+      selectedCutIndex: null,
+      selectedWordIds: pastedIds,
+    });
+    return true;
+  },
+
+  trimEdge: (edge, from, to, copy) => {
+    const s = get();
+    const result = trimEdgeResult(
+      wordsOfCopy(s.words, copy),
+      ofCopy(s.manualCuts, copy),
       edge,
       from,
       to,
       s.nextManualCutId
     );
     if (!result) return;
+    const words = editCopyWords(s.words, copy, () => result.words);
+    const manualCuts = replaceCopyItems(s.manualCuts, copy, result.manualCuts);
 
     // A split point sitting on the dragged edge *is* that edge — it has to move
     // with it, or the span the drag reclaims becomes an orphan clip.
-    const sceneBoundaries = carrySceneBoundaries(s.sceneBoundaries, from, to);
+    const sceneBoundaries = replaceCopyItems(
+      s.sceneBoundaries,
+      copy,
+      carrySceneBoundaries(ofCopy(s.sceneBoundaries, copy), from, to)
+    ).sort((a, b) => a.time - b.time);
 
     // Clip indices shift whenever a trim merges or splits keep ranges, so
     // re-find the clip that owns the moved edge instead of keeping an index.
     const clips = getClipSegments(
-      getKeepRanges(
-        getCutRanges(result.words, s.duration, result.manualCuts),
-        s.duration
-      ),
+      sequenceFor(words, manualCuts, s.copies, s.duration).pieces,
       sceneBoundaries
-    );
+    ).filter((c) => c.copy === copy);
     const owner =
       clips.find((c) => Math.abs((edge === "in" ? c.start : c.end) - to) < 1e-3) ??
       clips.find((c) => to >= c.start && to <= c.end);
 
     pushEdit(get, set, {
-      words: result.words,
-      manualCuts: result.manualCuts,
+      words,
+      manualCuts,
       sceneBoundaries,
       nextManualCutId: result.nextCutId,
       selectedClipIndex: owner?.index ?? s.selectedClipIndex,
@@ -948,20 +1160,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   undo: () => {
-    const { past, future, words, speakers, manualCuts, sceneBoundaries } =
-      get();
+    const s = get();
+    const { past, future } = s;
     if (past.length === 0) return;
     const prev = past[past.length - 1];
     set({
-      words: prev.words,
-      speakers: prev.speakers,
-      manualCuts: prev.manualCuts,
-      sceneBoundaries: prev.sceneBoundaries,
+      ...snapshotOf(prev),
+      currentPiece: null,
       past: past.slice(0, -1),
-      future: [
-        { words, speakers, manualCuts, sceneBoundaries },
-        ...future,
-      ],
+      future: [snapshotOf(s), ...future],
       selectedClipIndex: null,
       selectedCutIndex: null,
       selectedWordIds: [],
@@ -970,17 +1177,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     bumpAutosave();
   },
   redo: () => {
-    const { past, future, words, speakers, manualCuts, sceneBoundaries } =
-      get();
+    const s = get();
+    const { past, future } = s;
     if (future.length === 0) return;
     const next = future[0];
     set({
-      words: next.words,
-      speakers: next.speakers,
-      manualCuts: next.manualCuts,
-      sceneBoundaries: next.sceneBoundaries,
+      ...snapshotOf(next),
+      currentPiece: null,
       future: future.slice(1),
-      past: pushHistory(past, { words, speakers, manualCuts, sceneBoundaries }),
+      past: pushHistory(past, snapshotOf(s)),
       selectedClipIndex: null,
       selectedCutIndex: null,
       selectedWordIds: [],
@@ -993,11 +1198,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     bumpAutosave();
   },
 
-  setCurrentTime: (currentTime) => set({ currentTime }),
-  seekTo: (time) => {
+  setCurrentTime: (currentTime, copy, piece) =>
+    set({
+      currentTime,
+      ...(copy === undefined ? {} : { currentCopy: copy }),
+      ...(piece === undefined ? {} : { currentPiece: piece }),
+    }),
+  seekTo: (time, copy) => {
     const media = get().videoEl;
     if (media) media.currentTime = time;
-    set({ currentTime: time });
+    set({
+      currentTime: time,
+      ...(copy === undefined ? {} : { currentCopy: copy }),
+      currentPiece: null,
+    });
   },
   setPlaying: (playing) => set({ playing }),
   setVideoEl: (videoEl) => set({ videoEl }),
@@ -1006,10 +1220,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const media = s.videoEl;
     if (!media) return;
     if (media.paused) {
-      const cuts = getCutRanges(s.words, s.duration, s.manualCuts);
-      const cut = cutRangeAt(media.currentTime, cuts);
-      if (cut) media.currentTime = cut.end + PLAYHEAD_EPSILON_S;
-      if (media.currentTime >= media.duration - 0.05) media.currentTime = 0;
+      // Start from the playhead's piece, skipping forward out of a cut; parked
+      // at the end of the edit, start over.
+      const seq = seqOf(s);
+      const t = media.currentTime;
+      let i = playheadPiece(seq, s.currentCopy, t, s.currentPiece);
+      // Parked on a piece's end: what plays is the next one.
+      if (i >= 0 && t >= seq.pieces[i].end - 1e-6) i += 1;
+      if (i < 0 || i >= seq.pieces.length) i = 0;
+      const piece = seq.pieces[i];
+      if (!piece) return;
+      const inside = piece.copy === s.currentCopy && t >= piece.start && t < piece.end;
+      const start = inside ? t : piece.start + (piece.start > 0 ? PLAYHEAD_EPSILON_S : 0);
+      if (!inside) media.currentTime = start;
+      set({ currentTime: start, currentCopy: piece.copy, currentPiece: i });
       void media.play();
     } else {
       media.pause();
@@ -1049,6 +1273,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       speakers: [],
       manualCuts: [],
       sceneBoundaries: [],
+      copies: [],
+      clipboard: null,
       past: [],
       future: [],
       selectedClipIndex: null,
@@ -1058,12 +1284,65 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       nextBoundaryId: 1,
       gestureActive: false,
       currentTime: 0,
+      currentCopy: 0,
+      currentPiece: null,
       playing: false,
       exportResult: null,
       exportOpen: false,
     });
   },
 }));
+
+/**
+ * Whether Split can cut the clip under the playhead: inside a kept piece, clear
+ * of cut edges, existing splits and the piece's own ends.
+ */
+export function canSplitAtPlayhead(s: EditorState): boolean {
+  const t = s.currentTime;
+  const copy = s.currentCopy;
+  const seq = seqOf(s);
+  if (!canSplitAt(t, s.duration, cutsOf(seq, copy), ofCopy(s.sceneBoundaries, copy))) {
+    return false;
+  }
+  const piece = seq.pieces[pieceAtOrAfter(seq, copy, t)];
+  return (
+    !!piece &&
+    piece.copy === copy &&
+    t > piece.start + SPLIT_EPSILON &&
+    t < piece.end - SPLIT_EPSILON
+  );
+}
+
+/** The word at the playhead — in the copy that is playing. */
+export function activeWordOf(s: EditorState): number {
+  const seq = seqOf(s);
+  const run = playheadRun(seq, s.currentCopy, s.currentTime, s.currentPiece);
+  return activeWordId(seq, s.words, s.currentCopy, s.currentTime, run);
+}
+
+/** Where the playhead is in the edited output (seconds). */
+export function playheadEditedTime(s: EditorState): number {
+  const seq = seqOf(s);
+  const run = playheadRun(seq, s.currentCopy, s.currentTime, s.currentPiece);
+  return run < 0 ? 0 : editedTimeInRun(seq, run, s.currentTime);
+}
+
+/** Where the playhead sits on the timeline's display axis (seconds). */
+export function playheadDisplayTime(s: EditorState): number {
+  const seq = seqOf(s);
+  const run = playheadRun(seq, s.currentCopy, s.currentTime, s.currentPiece);
+  return run < 0 ? 0 : displayTimeInRun(seq, run, s.currentTime);
+}
+
+/** The live edit in playback order, for code outside React. */
+export function liveSequence(): Sequence {
+  return seqOf(useEditorStore.getState());
+}
+
+/** Put the playhead on a word (just inside it, in its own copy). */
+export function seekToWord(word: Word): void {
+  useEditorStore.getState().seekTo(word.start + PLAYHEAD_EPSILON_S, copyOf(word));
+}
 
 /** Apply the stored model preference after mount (avoids SSR/localStorage mismatch). */
 export function hydrateModelPreference() {

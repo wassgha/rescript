@@ -213,6 +213,8 @@ export function runFFmpeg(
 
 /**
  * Native export argv for `plan`, reading the filtergraph from `graphPath`.
+ * `input` is opened once per entry of `plan.inputs`, each with its own
+ * options.
  *
  * The graph goes in a file: every kept range adds ~130 characters, and a
  * transcript with its filler words removed easily has hundreds of ranges —
@@ -227,11 +229,15 @@ export function nativeExportArgs(
   { hardwareDecode = false }: { hardwareDecode?: boolean } = {}
 ): string[] {
   return [
-    // Decoded frames still come back to system memory (no
-    // -hwaccel_output_format), so the CPU filtergraph works unchanged, and a
-    // stream VideoToolbox can't decode quietly falls back to software.
-    ...(hardwareDecode ? ["-hwaccel", "videotoolbox"] : []),
-    "-i", input,
+    ...plan.inputs.flatMap((options) => [
+      // Decoded frames still come back to system memory (no
+      // -hwaccel_output_format), so the CPU filtergraph works unchanged, and a
+      // stream VideoToolbox can't decode quietly falls back to software.
+      // An input option, so every input needs its own.
+      ...(hardwareDecode ? ["-hwaccel", "videotoolbox"] : []),
+      ...options,
+      "-i", input,
+    ]),
     "-filter_complex_script", graphPath,
     ...plan.streamArgs,
     ...plan.codecArgs,

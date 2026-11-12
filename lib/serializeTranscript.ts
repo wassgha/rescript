@@ -1,8 +1,8 @@
 import { en } from "@/lib/i18n/messages/en";
-import { getCutRanges, originalToEdited } from "./edits";
+import { buildSequence, copyOf, cutsOf, editedTimeInRun } from "./sequence";
 import { speakerLabel, speakersFromWords } from "./speakers";
 import { groupWordsBySpeaker } from "./transcript";
-import type { SpeakerInfo, TimeRange, Word } from "./types";
+import type { ManualCut, SourceCopy, SpeakerInfo, TimeRange, Word } from "./types";
 import { zipStore } from "./zipStore";
 
 /** Timed caption / subtitle formats (importable). */
@@ -22,11 +22,10 @@ export interface SerializeOptions {
   editedTimeline?: boolean;
   /** Media duration in seconds; used when remapping onto the edited timeline. */
   duration?: number;
-  /**
-   * Precomputed cut ranges (deleted words ∪ manual cuts). Preferred so caption
-   * times match the media export. Falls back to word-derived cuts when omitted.
-   */
-  cuts?: TimeRange[];
+  /** Blade / trim cuts, so caption times match the media export. */
+  manualCuts?: ManualCut[];
+  /** Pasted duplicates the words refer to (see `Word.copy`). */
+  copies?: SourceCopy[];
   /** Named speakers for labels in captions / documents / JSON. */
   speakers?: SpeakerInfo[];
   /** Prefix each speaker turn with its start time (document formats only). */
@@ -103,7 +102,7 @@ export function serializeTranscript(
   // Always re-derive against the word list so a stale speakers snapshot can't
   // leave labels stuck on defaults after rename / replace-in-project.
   const speakers = speakersFromWords(words, options.speakers ?? []);
-  if (format === "json") return serializeJson(words, speakers);
+  if (format === "json") return serializeJson(words, speakers, options.copies ?? []);
   if (format === "txt" || format === "md") {
     return serializeDocument(words, format, { ...options, speakers });
   }
@@ -166,16 +165,38 @@ export function downloadTranscript(
   URL.revokeObjectURL(url);
 }
 
-function serializeJson(words: Word[], speakers: SpeakerInfo[]): string {
+/**
+ * The full word list in playback order, with source-media times so it can be
+ * imported again against the same file. A reordered edit also writes each
+ * word's source rank (`src`) and, for pasted duplicates, its `copy` plus the
+ * `copies` they span.
+ */
+function serializeJson(
+  words: Word[],
+  speakers: SpeakerInfo[],
+  copies: SourceCopy[]
+): string {
+  const ranked = words.some((w) => w.src !== undefined);
   return JSON.stringify(
     {
       speakers: speakers.map((s) => ({ id: s.id, name: s.name })),
-      words: words.map((w) => ({
+      ...(copies.length > 0
+        ? {
+            copies: copies.map((c) => ({
+              id: c.id,
+              start: roundTime(c.start),
+              end: roundTime(c.end),
+            })),
+          }
+        : {}),
+      words: words.map((w, i) => ({
         text: w.text,
         start: roundTime(w.start),
         end: roundTime(w.end),
         speaker: w.speaker,
         deleted: w.deleted,
+        ...(copyOf(w) !== 0 ? { copy: w.copy } : {}),
+        ...(ranked ? { src: w.src ?? i } : {}),
       })),
     },
     null,
@@ -330,17 +351,24 @@ function prepareCaptionWords(
   options: SerializeOptions
 ): Word[] {
   const duration = options.duration ?? 0;
-  const cuts =
-    options.cuts ??
-    getCutRanges(words, duration > 0 ? duration : Infinity);
+  const seq = buildSequence(
+    words,
+    options.manualCuts ?? [],
+    options.copies ?? [],
+    duration > 0 ? duration : Infinity
+  );
 
-  const kept = words.filter((w) => isWordKept(w, cuts));
-  if (!editedTimeline || kept.length === 0 || cuts.length === 0) return kept;
+  const kept = words
+    .map((w, i) => ({ w, run: seq.runOf[i] }))
+    .filter(({ w }) => isWordKept(w, cutsOf(seq, copyOf(w))));
+  if (!editedTimeline) return kept.map(({ w }) => w);
 
-  return kept.map((w) => ({
+  // Words are already in playback order; place each on the edited timeline
+  // through the run it plays in.
+  return kept.map(({ w, run }) => ({
     ...w,
-    start: originalToEdited(w.start, cuts),
-    end: originalToEdited(w.end, cuts),
+    start: editedTimeInRun(seq, run, w.start),
+    end: editedTimeInRun(seq, run, w.end),
   }));
 }
 

@@ -1,5 +1,6 @@
 import { getCutRanges, isWordCutOut } from "./edits";
-import type { ManualCut, TimeRange, Word } from "./types";
+import { copyOf, copyRange, ofCopy, sourceOrder } from "./sequence";
+import type { CopyRange, ManualCut, SourceCopy, TimeRange, Word } from "./types";
 
 /**
  * Minimum gap length (seconds) that counts as a removable silence.
@@ -108,6 +109,46 @@ export function findSilenceRanges(
       const start = part.start + (padStart ? pad : 0);
       const end = part.end - (padEnd ? pad : 0);
       if (end - start > 1e-4) out.push({ start, end });
+    }
+  }
+  return out;
+}
+
+/**
+ * findSilenceRanges for every copy of the media: the original over the whole
+ * file, each pasted duplicate within its own range. Each range names its copy.
+ */
+export function findCopySilenceRanges(
+  words: Word[],
+  duration: number,
+  manualCuts: ManualCut[],
+  copies: SourceCopy[],
+  minDuration = MIN_SILENCE_DURATION
+): CopyRange[] {
+  const out: CopyRange[] = [];
+  const order = sourceOrder(words);
+  if (!order.has(0)) order.set(0, []);
+  for (const [copy, list] of order) {
+    const copyWords = list.map((i) => words[i]);
+    const range = copyRange(copy, copies, duration);
+    // A duplicate with every word deleted is cut whole already.
+    if (copy !== 0 && copyWords.every((w) => w.deleted)) continue;
+    for (const r of findSilenceRanges(copyWords, range.end, ofCopy(manualCuts, copy), minDuration)) {
+      const start = Math.max(r.start, range.start);
+      if (r.end - start < minDuration - 1e-4) continue;
+      out.push(copy === 0 ? { ...r, copy } : { start, end: r.end, copy });
+    }
+  }
+  return out;
+}
+
+/** findSilenceCuts for every copy, each range naming its copy. */
+export function findCopySilenceCuts(words: Word[], manualCuts: ManualCut[]): CopyRange[] {
+  const out: CopyRange[] = [];
+  for (const copy of new Set(manualCuts.map(copyOf))) {
+    const copyWords = words.filter((w) => copyOf(w) === copy);
+    for (const r of findSilenceCuts(copyWords, ofCopy(manualCuts, copy))) {
+      out.push({ ...r, copy });
     }
   }
   return out;

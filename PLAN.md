@@ -32,7 +32,7 @@ browser, with no server, no auth, and no API calls.
 
 ### Data model
 
-The single source of truth is the word list:
+The single source of truth is the word list, in playback order:
 
 ```ts
 interface Word {
@@ -42,15 +42,20 @@ interface Word {
   end: number;
   speaker: number; // sequential speaker index
   deleted: boolean;
+  copy?: number;   // pass over the media: 0 = original, else a pasted duplicate
+  src?: number;    // rank in source order within its copy (absent until reordered)
 }
 ```
 
-Everything else is derived:
+Everything else is derived (`lib/sequence.ts`):
 
-- **Cut ranges** — runs of consecutive deleted words merged into time ranges
-  (including the silence between adjacent deleted words).
-- **Keep ranges** — the inverse of cut ranges over `[0, duration]`; drives both
-  preview playback and export.
+- **Cut ranges** — per copy, runs of consecutive deleted words (in source
+  order) merged into time ranges, plus manual blade / trim cuts.
+- **Runs** — stretches of the word list that play one continuous span of one
+  copy; each word owns the media up to the midpoints of the gaps around it.
+- **Edit list** — each run minus its cuts, in playback order; drives preview
+  playback and every export. For an edit that was never reordered it is simply
+  `[0, duration]` minus the cuts.
 - **Edited duration / time mapping** — for the player clock and export summary.
 
 ### Pipeline (all local)
@@ -72,8 +77,9 @@ Everything else is derived:
    marks them deleted; preview playback skips cut ranges in real time; undo/redo
    snapshots the word list.
 6. **Export** — ffmpeg.wasm builds a `trim`/`atrim` + `concat` filter graph from
-   the keep ranges and re-encodes to MP4 (`libx264` + `aac`), so cuts land
-   exactly on word boundaries rather than keyframes.
+   the edit list (one input per stretch that plays forward) and re-encodes to
+   MP4 (`libx264` + `aac`), so cuts land exactly on word boundaries rather than
+   keyframes.
 
 ### Offline strategy
 

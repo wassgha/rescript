@@ -99,6 +99,18 @@ export function wordIdForDelete(
   return segments.find((seg) => seg.start >= caret)?.id ?? null;
 }
 
+/**
+ * Where a paste at a collapsed caret goes: before the word the caret is at the
+ * start of (or in a gap before), after the word it is inside or at the end of.
+ * Returns the id of the word to insert before, or null for the very end.
+ */
+export function wordIdBeforeCaret(
+  segments: TextSegment[],
+  caret: number
+): number | null {
+  return segments.find((seg) => seg.start >= caret)?.id ?? null;
+}
+
 /** Start offset of the word, or null when it isn't in the text. */
 export function wordStartOffset(
   segments: TextSegment[],

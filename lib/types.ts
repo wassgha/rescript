@@ -11,6 +11,16 @@ export interface Word {
   speaker: number;
   /** Deleted words are cut out of the video. */
   deleted: boolean;
+  /**
+   * Which pass over the media this occurrence belongs to: 0 (or absent) is the
+   * original, a pasted duplicate gets its own copy id (see `SourceCopy`).
+   */
+  copy?: number;
+  /**
+   * Rank in source order within its copy. Absent on every word while the
+   * array has never been reordered — the array index is the rank then.
+   */
+  src?: number;
 }
 
 /** A half-open time range [start, end) in original media seconds. */
@@ -27,6 +37,8 @@ export interface ManualCut {
   id: number;
   start: number;
   end: number;
+  /** Copy the cut applies to (absent = the original). */
+  copy?: number;
 }
 
 /**
@@ -36,6 +48,23 @@ export interface ManualCut {
 export interface SceneBoundary {
   id: number;
   time: number;
+  /** Copy the split belongs to (absent = the original). */
+  copy?: number;
+}
+
+/**
+ * A pasted duplicate: a second pass over [start, end) of the media. The
+ * original pass (copy 0) is implicit and spans the whole file.
+ */
+export interface SourceCopy {
+  id: number;
+  start: number;
+  end: number;
+}
+
+/** A source range within one copy. */
+export interface CopyRange extends TimeRange {
+  copy: number;
 }
 
 /** Named speaker in the project (id matches Word.speaker). */
@@ -50,6 +79,7 @@ export interface EditSnapshot {
   manualCuts: ManualCut[];
   sceneBoundaries: SceneBoundary[];
   speakers: SpeakerInfo[];
+  copies: SourceCopy[];
 }
 
 /** A contiguous kept segment of media, optionally subdivided by scene boundaries. */
@@ -59,6 +89,8 @@ export interface ClipSegment {
   start: number;
   end: number;
   index: number;
+  /** Copy the clip plays from (0 = the original). */
+  copy: number;
 }
 
 /** Consecutive words spoken by the same speaker (derived for rendering). */
