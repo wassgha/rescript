@@ -19,6 +19,9 @@ export const sv: Record<MessageKey, string> = {
   "settings.light": "Ljust",
   "settings.dark": "Mörkt",
   "settings.interfaceLanguage": "Gränssnittsspråk",
+  "settings.silenceThreshold": "Tystnadströskel",
+  "settings.silenceThresholdHelp":
+    'Hur lång en paus måste vara innan "Ta bort tystnad" klipper den.',
   "settings.privacy": "Integritet",
   "settings.helpImprove": "Hjälp till att förbättra appen",
   "settings.telemetryHelp": "Skicka anonym användningsstatistik och kraschrapporter.",
