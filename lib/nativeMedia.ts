@@ -8,6 +8,7 @@
  * this throws {@link NativeUnavailableError}.
  */
 import { en } from "@/lib/i18n/messages/en";
+import { setVideoFrameRate } from "./media";
 import { reportError } from "./sentry";
 import type { ExportRequest } from "./exportArgs";
 import type {
@@ -177,6 +178,7 @@ export async function nativeExtractAudio(
   const media = requireBridge();
   const mediaId = await mediaIdFor(file, onStaging);
   const res = await media.extractAudio(mediaId);
+  if (res.frameRate) setVideoFrameRate(file, res.frameRate);
   if (!res.ok) {
     if (res.code === "no-audio") return null;
     fail(res, en["error.extractAudio"]);

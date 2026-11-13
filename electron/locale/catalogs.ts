@@ -1,3 +1,4 @@
+import { sv } from "./sv";
 import type { UiLocale } from "../../lib/i18n/locales";
 import { de } from "./de";
 import { en, type DesktopMessageKey } from "./en";
@@ -6,6 +7,7 @@ import { fr } from "./fr";
 import { ja } from "./ja";
 import { ko } from "./ko";
 import { pt } from "./pt";
+import { it } from "./it";
 import { zhCN } from "./zh-CN";
 import { zhTW } from "./zh-TW";
 
@@ -13,6 +15,7 @@ export type DesktopMessageCatalog = Record<DesktopMessageKey, string>;
 
 export const desktopCatalogs: Record<UiLocale, DesktopMessageCatalog> = {
   en,
+  sv,
   "zh-CN": zhCN,
   "zh-TW": zhTW,
   ja,
@@ -21,4 +24,5 @@ export const desktopCatalogs: Record<UiLocale, DesktopMessageCatalog> = {
   fr,
   de,
   pt,
+  it,
 };
