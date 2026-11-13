@@ -174,7 +174,7 @@ export const pt: Record<MessageKey, string> = {
   "export.downloadFormat": "Baixar .{format}",
   "export.exportFormat": "Exportar {format}",
   "export.timeline": "Linha do tempo",
-  "export.timelineTitle": "Exportar uma sequência NLE/DAW (Resolve, Premiere, Final Cut, Pro Tools, Reaper)",
+  "export.timelineTitle": "Exportar uma sequência NLE/DAW (Resolve, Premiere, Final Cut, Pro Tools, Reaper, Blender)",
   "export.nle": "Formato",
   "export.frameRate": "Taxa de quadros",
   "export.timelineHelp":
@@ -186,6 +186,8 @@ export const pt: Record<MessageKey, string> = {
   "export.timelineHelpReaper": "Projeto do Reaper (.rpp).",
   "export.timelineHelpSamplitude":
     "EDL do Samplitude (.edl) — também abre diretamente no Reaper.",
+  "export.timelineHelpBlender":
+    "Projeto de edição de vídeo do Blender (.blend, Blender 5.2+) — salve-o na mesma pasta que a mídia original.",
   "export.aafOverCap":
     "Esta edição tem {count} clipes; AAF admite até {max}. Use Resolve, Premiere, Final Cut, Reaper ou EDL do Samplitude.",
   "export.preparing": "Preparando…",

@@ -94,6 +94,40 @@ const SHORT_SIDE: Record<Exclude<VideoExportResolution, "original">, number> = {
 /** Matches the stream line ffmpeg logs for an input audio track. */
 export const AUDIO_STREAM_RE = /Stream #\d+:\d+.*: Audio:/;
 
+export interface FrameRate {
+  num: number;
+  den: number;
+}
+
+/** Matches the stream line ffmpeg logs for an input video track (not cover art). */
+const VIDEO_STREAM_RE = /Stream #\d+:\d+.*: Video:/;
+
+/** NTSC rates ffmpeg prints rounded to two decimals. */
+const NTSC_BASES = [24, 30, 48, 60, 120, 240];
+
+function rateFromPrinted(value: string): FrameRate | null {
+  const kilo = value.endsWith("k");
+  const n = Number(kilo ? value.slice(0, -1) : value) * (kilo ? 1000 : 1);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  for (const base of NTSC_BASES) {
+    if (Math.abs(n - (base * 1000) / 1001) < 0.006) return { num: base * 1000, den: 1001 };
+  }
+  if (Number.isInteger(n)) return { num: n, den: 1 };
+  return { num: Math.round(n * 100), den: 100 };
+}
+
+/**
+ * Frame rate from an ffmpeg input stream line. Prefers `tbr` (the stream's
+ * nominal rate, which Blender also uses) over the average `fps`, which drifts
+ * for variable-frame-rate phone video.
+ */
+export function parseVideoFrameRate(line: string): FrameRate | null {
+  if (!VIDEO_STREAM_RE.test(line) || line.includes("attached pic")) return null;
+  const tbr = line.match(/, ([\d.]+k?) tbr\b/);
+  const fps = line.match(/, ([\d.]+k?) fps\b/);
+  return rateFromPrinted((tbr ?? fps)?.[1] ?? "");
+}
+
 /**
  * Scale filter that brings the frame's short side down to the target, keeping
  * the aspect ratio and even dimensions (required by libx264 / libvpx). Sources

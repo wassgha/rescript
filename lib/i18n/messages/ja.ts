@@ -174,7 +174,7 @@ export const ja: Record<MessageKey, string> = {
   "export.downloadFormat": ".{format} をダウンロード",
   "export.exportFormat": "{format} を書き出し",
   "export.timeline": "タイムライン",
-  "export.timelineTitle": "NLE / DAW シーケンスを書き出す（Resolve、Premiere、Final Cut、Pro Tools、Reaper）",
+  "export.timelineTitle": "NLE / DAW シーケンスを書き出す（Resolve、Premiere、Final Cut、Pro Tools、Reaper、Blender）",
   "export.nle": "形式",
   "export.frameRate": "フレームレート",
   "export.timelineHelp":
@@ -186,6 +186,8 @@ export const ja: Record<MessageKey, string> = {
   "export.timelineHelpReaper": "Reaper プロジェクト（.rpp）。",
   "export.timelineHelpSamplitude":
     "Samplitude EDL（.edl）— Reaper でも直接開けます。",
+  "export.timelineHelpBlender":
+    "Blender の動画編集プロジェクト（.blend、Blender 5.2 以降）— 元のメディアと同じフォルダーに保存してください。",
   "export.aafOverCap":
     "この編集には {count} クリップあります。AAF は最大 {max} までです。Resolve、Premiere、Final Cut、Reaper、または Samplitude EDL を使ってください。",
   "export.preparing": "準備中…",

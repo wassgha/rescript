@@ -176,7 +176,7 @@ export const en = {
   "export.exportFormat": "Export {format}",
   "export.timeline": "Timeline",
   "export.timelineTitle":
-    "Export an NLE / DAW sequence (Resolve, Premiere, Final Cut, Pro Tools, Reaper)",
+    "Export an NLE / DAW sequence (Resolve, Premiere, Final Cut, Pro Tools, Reaper, Blender)",
   "export.nle": "Format",
   "export.frameRate": "Frame rate",
   "export.timelineHelp":
@@ -188,6 +188,8 @@ export const en = {
   "export.timelineHelpReaper": "Reaper project (.rpp).",
   "export.timelineHelpSamplitude":
     "Samplitude EDL (.edl) — also opens directly in Reaper.",
+  "export.timelineHelpBlender":
+    "Blender video editing project (.blend, Blender 5.2+) — save it in the same folder as the original media.",
   "export.aafOverCap":
     "This edit has {count} clips; AAF supports up to {max}. Use Resolve, Premiere, Final Cut, Reaper, or Samplitude EDL instead.",
   "export.preparing": "Preparing…",

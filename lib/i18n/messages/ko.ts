@@ -174,7 +174,7 @@ export const ko: Record<MessageKey, string> = {
   "export.downloadFormat": ".{format} 다운로드",
   "export.exportFormat": "{format} 내보내기",
   "export.timeline": "타임라인",
-  "export.timelineTitle": "NLE / DAW 시퀀스 내보내기 (Resolve, Premiere, Final Cut, Pro Tools, Reaper)",
+  "export.timelineTitle": "NLE / DAW 시퀀스 내보내기 (Resolve, Premiere, Final Cut, Pro Tools, Reaper, Blender)",
   "export.nle": "형식",
   "export.frameRate": "프레임 레이트",
   "export.timelineHelp":
@@ -186,6 +186,8 @@ export const ko: Record<MessageKey, string> = {
   "export.timelineHelpReaper": "Reaper 프로젝트 (.rpp).",
   "export.timelineHelpSamplitude":
     "Samplitude EDL (.edl) — Reaper에서도 바로 열립니다.",
+  "export.timelineHelpBlender":
+    "Blender 동영상 편집 프로젝트 (.blend, Blender 5.2 이상) — 원본 미디어와 같은 폴더에 저장하세요.",
   "export.aafOverCap":
     "이 편집에는 클립이 {count}개입니다. AAF는 최대 {max}개까지 지원합니다. Resolve, Premiere, Final Cut, Reaper 또는 Samplitude EDL을 사용하세요.",
   "export.preparing": "준비 중…",

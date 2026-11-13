@@ -39,6 +39,7 @@ import {
   type TimelineFrameRate,
 } from "@/lib/serializeTimeline";
 import { AAF_MAX_CLIPS } from "@/lib/aaf/patchAaf";
+import { videoFrameRateFor } from "@/lib/media";
 import { useCutRanges } from "@/hooks/useCutRanges";
 import { useI18n } from "./I18nProvider";
 import { localizeRuntimeMessage } from "@/lib/i18n";
@@ -100,6 +101,7 @@ const TIMELINE_HELP_KEY: Record<
   | "export.timelineHelpAaf"
   | "export.timelineHelpReaper"
   | "export.timelineHelpSamplitude"
+  | "export.timelineHelpBlender"
 > = {
   resolve: "export.timelineHelpResolve",
   premiere: "export.timelineHelpPremiere",
@@ -107,6 +109,7 @@ const TIMELINE_HELP_KEY: Record<
   aaf: "export.timelineHelpAaf",
   reaper: "export.timelineHelpReaper",
   samplitude: "export.timelineHelpSamplitude",
+  blender: "export.timelineHelpBlender",
 };
 
 export default function ExportDialog() {
@@ -162,7 +165,10 @@ export default function ExportDialog() {
   const aafOverCap =
     timelineFormat === "aaf" && keepRangeCount > AAF_MAX_CLIPS;
   const timelineMeta = TIMELINE_FORMATS.find((f) => f.value === timelineFormat);
-  const showTimelineFrameRate = timelineMeta?.needsFrameRate ?? true;
+  const sourceFrameRate = videoFile ? videoFrameRateFor(videoFile) : null;
+  const showTimelineFrameRate =
+    (timelineMeta?.needsFrameRate ?? true) ||
+    (timelineFormat === "blender" && !isAudioProject && !sourceFrameRate);
   const exporting = status === "exporting";
   const dialogBusy = exporting || timelineBusy || saving;
   const hasWords = words.length > 0;
@@ -410,6 +416,7 @@ export default function ExportDialog() {
         withAudio: hasAudioTrack,
         width,
         height,
+        sourceFrameRate,
       });
       trackEvent("export_completed", { kind: "timeline", format: timelineFormat });
     } catch (err) {
@@ -426,6 +433,7 @@ export default function ExportDialog() {
     baseName,
     isAudioProject,
     hasAudioTrack,
+    sourceFrameRate,
   ]);
 
   if (!open) return null;

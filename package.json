@@ -1,6 +1,6 @@
 {
   "name": "rescript",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Rescript — edit video and audio like you edit text, fully offline.",
   "private": true,
   "author": {
@@ -20,7 +20,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:i18n": "tsx tests/i18n-test.ts",
-    "test:timeline": "tsx tests/serialize-timeline-test.ts",
+    "test:timeline": "tsx tests/serialize-timeline-test.ts && tsx tests/blend-test.ts",
     "test:transcript": "tsx tests/parse-transcript-test.ts && tsx tests/transcript-file-input-test.ts",
     "test:ffmpeg": "tsx tests/ffmpeg-watchdog-test.ts && tsx tests/ffmpeg-core-test.ts && tsx tests/export-args-test.ts && tsx tests/native-ffmpeg-test.ts",
     "postinstall": "patch-package && node scripts/copy-assets.mjs",
@@ -163,7 +163,8 @@
         "es_ES",
         "fr_FR",
         "de_DE",
-        "pt_BR"
+        "pt_BR",
+        "it_IT"
       ],
       "multiLanguageInstaller": true,
       "artifactName": "${productName}-Setup.${ext}"

@@ -16,8 +16,10 @@ import {
   buildAudioExport,
   buildVideoExport,
   extractAudioArgs,
+  parseVideoFrameRate,
   VIDEOTOOLBOX_QUALITY,
   type ExportPlan,
+  type FrameRate,
 } from "../lib/exportArgs";
 import {
   nativeExportArgs,
@@ -274,16 +276,28 @@ async function main() {
     // Extraction: 16 kHz mono f32 — 6s is 96000 samples.
     {
       const pcm = join(dir, "audio.f32");
-      const outcome = await runFFmpeg(bin, extractAudioArgs(input, pcm));
+      let rate: FrameRate | null = null;
+      const outcome = await runFFmpeg(bin, extractAudioArgs(input, pcm), {
+        onStderrLine: (line) => {
+          rate ??= parseVideoFrameRate(line);
+        },
+      });
       assert(outcome.ok, "extraction succeeds");
+      assert(JSON.stringify(rate) === '{"num":25,"den":1}', `frame rate read while extracting, got ${JSON.stringify(rate)}`);
       const samples = statSync(pcm).size / 4;
       assert(Math.abs(samples - 96_000) < 1_600, `extracted ~96000 samples, got ${samples}`);
     }
 
     // No audio track: a job failure (no-audio upstream), not "unavailable".
     {
-      const outcome = await runFFmpeg(bin, extractAudioArgs(silent, join(dir, "none.f32")));
+      let rate: FrameRate | null = null;
+      const outcome = await runFFmpeg(bin, extractAudioArgs(silent, join(dir, "none.f32")), {
+        onStderrLine: (line) => {
+          rate ??= parseVideoFrameRate(line);
+        },
+      });
       assert(!outcome.ok && outcome.code === "failed", "silent extraction fails as a job");
+      assert(JSON.stringify(rate) === '{"num":25,"den":1}', "a silent video still reports its frame rate");
     }
 
     // A corrupt input is a job failure too — falling back wouldn't help.
