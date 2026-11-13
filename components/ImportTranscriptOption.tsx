@@ -5,6 +5,7 @@ import { FileText, Loader2 } from "lucide-react";
 import {
   isTranscriptFile,
   parseTranscriptFile,
+  takeSelectedTranscriptFile,
   TRANSCRIPT_ACCEPT,
 } from "@/lib/parseTranscript";
 import { isModelId, type ModelId } from "@/lib/models";
@@ -119,10 +120,11 @@ export default function ImportTranscriptOption() {
         tabIndex={-1}
         className="sr-only"
         onChange={(e) => {
-          const files = e.target.files;
-          e.target.value = "";
+          // Read the picked file out of the input (and reset it) before the
+          // async work below — see takeSelectedTranscriptFile for why the
+          // order matters.
+          const file = takeSelectedTranscriptFile(e.target);
           void (async () => {
-            const file = files?.[0];
             const menu = menuRef.current;
             const gen = ++pickGenRef.current; // invalidate focus-cancel timer
             if (!file) {

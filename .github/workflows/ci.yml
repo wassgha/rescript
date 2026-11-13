@@ -44,6 +44,9 @@ jobs:
       - name: Timeline export tests
         run: npm run test:timeline
 
+      - name: Transcript import tests
+        run: npm run test:transcript
+
       # The native-engine tests render through the same static ffmpeg the
       # desktop app bundles (they skip, rather than fail, without it).
       - name: Fetch native ffmpeg

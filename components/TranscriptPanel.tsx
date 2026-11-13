@@ -22,6 +22,7 @@ import TranscriptToolsMenu from "./TranscriptToolsMenu";
 import {
   isTranscriptFile,
   parseTranscriptFile,
+  takeSelectedTranscriptFile,
   TRANSCRIPT_ACCEPT,
 } from "@/lib/parseTranscript";
 import type { Word } from "@/lib/types";
@@ -223,8 +224,7 @@ export default function TranscriptPanel() {
 
   const deletedCount = useMemo(() => cutOutIds.size, [cutOutIds]);
   const handleImportTranscript = useCallback(
-    async (files: FileList | null) => {
-      const file = files?.[0];
+    async (file: File | null) => {
       if (!file) return;
       if (!isTranscriptFile(file)) {
         alert(t("transcript.invalidFile"));
@@ -391,9 +391,10 @@ export default function TranscriptPanel() {
                   // Keep in the layout tree — display:none can block the OS picker.
                   className="sr-only"
                   onChange={(e) => {
-                    const files = e.target.files;
-                    e.target.value = "";
-                    void handleImportTranscript(files);
+                    // Read the picked file out of the input (and reset it)
+                    // before handing it to the async handler — clearing first
+                    // would empty the live FileList and drop the file.
+                    void handleImportTranscript(takeSelectedTranscriptFile(e.target));
                   }}
                 />
               </label>
