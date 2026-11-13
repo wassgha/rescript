@@ -40,3 +40,31 @@ export function saveSilenceThreshold(value: number): void {
     // Preference just won't persist; not worth surfacing.
   }
 }
+
+// Module-level cache plus subscribers, so every `useSilenceThreshold()` call
+// (Settings slider, Tools menu label, ...) sees the same value right away
+// instead of each component keeping its own `useState` copy until remount.
+let cached: number | null = null;
+const listeners = new Set<() => void>();
+
+function readCached(): number {
+  if (cached == null) cached = loadSilenceThreshold();
+  return cached;
+}
+
+export function getSilenceThreshold(): number {
+  return readCached();
+}
+
+export function setSilenceThresholdShared(value: number): number {
+  const clamped = clampSilenceThreshold(value);
+  cached = clamped;
+  saveSilenceThreshold(clamped);
+  for (const listener of listeners) listener();
+  return clamped;
+}
+
+export function subscribeSilenceThreshold(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}

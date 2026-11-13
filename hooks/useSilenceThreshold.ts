@@ -1,23 +1,27 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import {
-  clampSilenceThreshold,
-  loadSilenceThreshold,
-  saveSilenceThreshold,
+  DEFAULT_SILENCE_THRESHOLD,
+  getSilenceThreshold,
+  setSilenceThresholdShared,
+  subscribeSilenceThreshold,
 } from "@/lib/silenceThreshold";
 
 /**
- * "Remove silences" threshold preference (seconds, default 0.3). Safe to read
- * in the initializer because the whole editor tree is client-only (`ssr: false`).
+ * "Remove silences" threshold preference (seconds, default 0.3). Backed by a
+ * module-level store (see `silenceThreshold.ts`) so every consumer re-renders
+ * together when it changes, not just the component that called `setThreshold`.
  */
 export function useSilenceThreshold() {
-  const [threshold, setThresholdState] = useState(() => loadSilenceThreshold());
+  const threshold = useSyncExternalStore(
+    subscribeSilenceThreshold,
+    getSilenceThreshold,
+    () => DEFAULT_SILENCE_THRESHOLD
+  );
 
   const setThreshold = useCallback((next: number) => {
-    const clamped = clampSilenceThreshold(next);
-    saveSilenceThreshold(clamped);
-    setThresholdState(clamped);
+    setSilenceThresholdShared(next);
   }, []);
 
   return { threshold, setThreshold };
